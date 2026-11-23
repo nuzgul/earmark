@@ -1,9 +1,7 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Earmark — design board</title>
+<title>Earmark Design Board</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mona+Sans:wdth,wght@75..125,300..800&display=swap">
 <style>
   :root{
     --bg:#14130F; --surface:#1E1C17; --raised:#29261F; --text:#F3EEE2; --text2:#ADA593;
@@ -11,14 +9,15 @@
     --l-bg:#F7F3EA; --l-surface:#EFE9DC; --l-raised:#FBF8F1; --l-text:#1B1812; --l-text2:#5C5547;
     --l-border:#8C8472; --l-ink:#7A5500; --l-rec:#B02E22;
     --r-lg:28px; --r-md:18px; --r-sm:10px;
+    color-scheme:dark;
     font-family:"Mona Sans","Inter Variable",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   }
   *{box-sizing:border-box;margin:0}
-  body{background:#0E0D0A;color:var(--text);padding:56px 48px 96px;line-height:1.5}
+  body{background:#0E0D0A;color:var(--text);padding-block:56px 96px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));line-height:1.5;font-family:inherit}
   .tnum{font-variant-numeric:tabular-nums}
-  header{display:flex;gap:32px;align-items:center;max-width:1280px;margin:0 auto 56px}
+  header{display:flex;flex-wrap:wrap;gap:32px;align-items:center;max-width:1280px;margin:0 auto 56px}
   header svg{width:128px;height:128px}
-  h1{font-size:56px;line-height:1.02;letter-spacing:-.035em;font-weight:650}
+  h1{font-size:clamp(40px,7vw,56px);text-wrap:balance;line-height:1.02;letter-spacing:-.035em;font-weight:650}
   h1 small{display:block;font-size:18px;letter-spacing:0;font-weight:450;color:var(--text2);margin-top:10px}
   h2{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:var(--text2);font-weight:600;margin:0 0 18px}
   section{max-width:1280px;margin:0 auto 64px}
@@ -27,7 +26,7 @@
   .sw i{display:block;height:72px}
   .sw p{padding:10px 12px;color:var(--text2)} .sw b{color:var(--text);font-weight:600;display:block}
   .note{color:var(--text2);max-width:760px;font-size:15px}
-  .logos{display:flex;gap:28px;align-items:end}
+  .logos{display:flex;flex-wrap:wrap;gap:28px;align-items:end}
   .logos figure{text-align:center;color:var(--text2);font-size:12px}
   .logos svg{display:block;margin-bottom:8px;border-radius:22%}
   .mono{background:var(--l-bg);padding:18px;border-radius:22%}
@@ -106,8 +105,6 @@
   .btns div{flex:1;height:56px;border-radius:999px;display:grid;place-items:center;font-weight:650}
   .dim{position:absolute;inset:0;background:rgba(0,0,0,.45)}
 </style>
-</head>
-<body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="logo" viewBox="0 0 1024 1024"><clipPath id="tile"><rect width="1024" height="1024" rx="232"/></clipPath><g clip-path="url(#tile)"><rect width="1024" height="1024" fill="#14130F"/><rect x="196" y="530" width="76" height="140" rx="38" fill="#F3EEE2" opacity=".55"/><rect x="316" y="430" width="76" height="340" rx="38" fill="#F3EEE2"/><rect x="632" y="400" width="76" height="400" rx="38" fill="#F3EEE2"/><rect x="752" y="510" width="76" height="180" rx="38" fill="#F3EEE2" opacity=".55"/><path d="M436 -10 H588 V838 L512 772 L436 838 Z" fill="#FFC23D"/></g></symbol>
   <symbol id="mono" viewBox="0 0 1024 1024"><g fill="#000"><rect x="196" y="530" width="76" height="140" rx="38" opacity=".55"/><rect x="316" y="430" width="76" height="340" rx="38"/><rect x="632" y="400" width="76" height="400" rx="38"/><rect x="752" y="510" width="76" height="180" rx="38" opacity=".55"/><path d="M436 120 H588 V838 L512 772 L436 838 Z"/></g></symbol>
@@ -244,5 +241,3 @@
     </div>
   </div>
 </section>
-</body>
-</html>
