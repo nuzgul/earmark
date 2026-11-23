@@ -6,5 +6,5 @@
 - Marks are frame-counted and journaled (fsync) by the native engine; the UI shows only heartbeat-confirmed recording state.
 - Marigold is for marks only; red only for live capture.
 - iOS builds need macOS (Mac or CI); the owner works on Windows.
-- Commands (from `app/`): `flutter analyze`, `flutter test` (goldens are rendered on Windows; CI skips the `golden` tag), `flutter build apk --debug`, `dart run pigeon --input pigeons/engine_api.dart`.
+- Commands (from `app/`): `flutter analyze`, `flutter test` (goldens are rendered on Windows; CI skips the `golden` tag), `flutter build apk --debug`, `dart run pigeon --input pigeons/engine_api.dart`, engine JVM tests `cd android && ./gradlew :app:testDebugUnitTest`, integration on an emulator `tool/integration_android.sh emulator-5554` (Git Bash; uses the debug-only test tone, never the host mic).
 - App id: `app.earmark.recorder` on both platforms.

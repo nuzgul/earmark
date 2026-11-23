@@ -27,6 +27,10 @@ jobs:
       # Goldens are rendered on Windows by the owner; font rasterising differs on Linux.
       - run: flutter test --exclude-tags golden
       - run: flutter build apk --debug
+      # Engine logic on the JVM: ADTS framing, frame→ms, journal with a torn last line.
+      - run: ./gradlew :app:testDebugUnitTest
+        working-directory: app/android
+      # The owner's timing sequence needs an emulator: run app/tool/integration_android.sh locally.
       - uses: actions/upload-artifact@v4
         with:
           name: earmark-debug-apk

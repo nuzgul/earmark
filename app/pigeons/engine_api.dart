@@ -12,6 +12,7 @@ import 'package:pigeon/pigeon.dart';
   ),
 )
 /// The engine's real state. The UI never shows "Recording" unless the engine says so.
+/// `recording` is reported only once microphone frames are actually arriving.
 enum SessionState { idle, starting, recording, paused, interrupted, finalizing }
 
 /// Sent on every heartbeat (about every 250 ms) and after every command.
@@ -21,6 +22,7 @@ class EngineSnapshot {
     required this.positionMs,
     required this.level,
     required this.markCount,
+    required this.freeBytes,
   });
 
   SessionState state;
@@ -31,13 +33,17 @@ class EngineSnapshot {
   /// Audio actually captured, paused time excluded (frame-counted).
   int positionMs;
 
-  /// Smoothed input level, 0.0 to 1.0.
+  /// Peak input level since the last snapshot, 0.0 to 1.0.
   double level;
 
+  /// User marks only (system markers such as "call" are not counted).
   int markCount;
 
-  /// Why capture is interrupted: "call", "mic_lost", "low_storage". Null otherwise.
+  /// Why capture is interrupted: "call", "mic_lost". Null otherwise.
   String? interruption;
+
+  /// Free space where recordings are stored.
+  int freeBytes;
 }
 
 class MarkResult {
@@ -52,10 +58,39 @@ class MarkResult {
   int index;
 }
 
+/// A finished recording on disk (after Stop, or recovered after a crash).
+class SavedRecording {
+  SavedRecording({
+    required this.id,
+    required this.folder,
+    required this.createdAtMs,
+    required this.durationMs,
+    required this.marks,
+    required this.recovered,
+  });
+
+  String id;
+
+  /// Absolute folder holding audio.m4a, marks.jsonl, peaks.bin, meta.json.
+  String folder;
+
+  int createdAtMs;
+  int durationMs;
+  List<MarkResult> marks;
+
+  /// True when it was rebuilt after the app was killed mid-recording.
+  bool recovered;
+
+  /// Why the engine stopped by itself ("low_storage"), null for a normal Stop.
+  String? stopReason;
+}
+
 @HostApi()
 abstract class RecorderHostApi {
   EngineSnapshot snapshot();
 
+  /// Asks for the microphone if needed, then starts. Errors: mic_denied
+  /// (details "permanent" when Android will not ask again), low_storage, mic_busy.
   @async
   EngineSnapshot start();
 
@@ -64,15 +99,30 @@ abstract class RecorderHostApi {
   EngineSnapshot resume();
 
   @async
-  EngineSnapshot stop();
+  SavedRecording? stop();
 
+  /// Runs off the main thread: the journal fsync must not stall the UI.
+  @TaskQueue(type: TaskQueueType.serialBackgroundThread)
   MarkResult mark();
+
+  /// Finalizes recordings left unfinished by a crash; returns them.
+  @async
+  List<SavedRecording> recover();
+
+  void openAppSettings();
+
+  /// Debug builds only (ignored in release): record a clock-paced test tone instead of
+  /// the microphone, for integration tests on emulators whose mic clock is unreliable.
+  void useTestTone(bool on);
 }
 
 @FlutterApi()
 abstract class RecorderEvents {
   void onSnapshot(EngineSnapshot snapshot);
 
-  /// A mark added outside the app UI (notification, tile, Live Activity).
+  /// Any new mark, including ones added outside the app UI (notification, tile).
   void onMark(MarkResult mark);
+
+  /// A recording was saved (from the app, the notification, low storage or recovery).
+  void onSaved(SavedRecording recording);
 }

@@ -50,4 +50,6 @@ flutter {
 dependencies {
     // Required by the Pigeon-generated engine bridge (suspend host methods).
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303") // android.jar's org.json is a stub on the JVM
 }

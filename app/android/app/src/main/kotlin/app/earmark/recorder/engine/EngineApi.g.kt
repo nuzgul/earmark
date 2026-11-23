@@ -201,7 +201,10 @@ class FlutterError (
   val details: Any? = null
 ) : RuntimeException()
 
-/** The engine's real state. The UI never shows "Recording" unless the engine says so. */
+/**
+ * The engine's real state. The UI never shows "Recording" unless the engine says so.
+ * `recording` is reported only once microphone frames are actually arriving.
+ */
 enum class SessionState(val raw: Int) {
   IDLE(0),
   STARTING(1),
@@ -230,11 +233,14 @@ data class EngineSnapshot (
   val recordingId: String? = null,
   /** Audio actually captured, paused time excluded (frame-counted). */
   val positionMs: Long,
-  /** Smoothed input level, 0.0 to 1.0. */
+  /** Peak input level since the last snapshot, 0.0 to 1.0. */
   val level: Double,
+  /** User marks only (system markers such as "call" are not counted). */
   val markCount: Long,
-  /** Why capture is interrupted: "call", "mic_lost", "low_storage". Null otherwise. */
-  val interruption: String? = null
+  /** Why capture is interrupted: "call", "mic_lost". Null otherwise. */
+  val interruption: String? = null,
+  /** Free space where recordings are stored. */
+  val freeBytes: Long
 )
  {
   companion object {
@@ -245,7 +251,8 @@ data class EngineSnapshot (
       val level = pigeonVar_list[3] as Double
       val markCount = pigeonVar_list[4] as Long
       val interruption = pigeonVar_list[5] as String?
-      return EngineSnapshot(state, recordingId, positionMs, level, markCount, interruption)
+      val freeBytes = pigeonVar_list[6] as Long
+      return EngineSnapshot(state, recordingId, positionMs, level, markCount, interruption, freeBytes)
     }
   }
   fun toList(): List<Any?> {
@@ -256,6 +263,7 @@ data class EngineSnapshot (
       level,
       markCount,
       interruption,
+      freeBytes,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -266,7 +274,7 @@ data class EngineSnapshot (
       return true
     }
     val other = other as EngineSnapshot
-    return EngineApiPigeonUtils.deepEquals(this.state, other.state) && EngineApiPigeonUtils.deepEquals(this.recordingId, other.recordingId) && EngineApiPigeonUtils.deepEquals(this.positionMs, other.positionMs) && EngineApiPigeonUtils.deepEquals(this.level, other.level) && EngineApiPigeonUtils.deepEquals(this.markCount, other.markCount) && EngineApiPigeonUtils.deepEquals(this.interruption, other.interruption)
+    return EngineApiPigeonUtils.deepEquals(this.state, other.state) && EngineApiPigeonUtils.deepEquals(this.recordingId, other.recordingId) && EngineApiPigeonUtils.deepEquals(this.positionMs, other.positionMs) && EngineApiPigeonUtils.deepEquals(this.level, other.level) && EngineApiPigeonUtils.deepEquals(this.markCount, other.markCount) && EngineApiPigeonUtils.deepEquals(this.interruption, other.interruption) && EngineApiPigeonUtils.deepEquals(this.freeBytes, other.freeBytes)
   }
 
   override fun hashCode(): Int {
@@ -277,10 +285,11 @@ data class EngineSnapshot (
     result = 31 * result + EngineApiPigeonUtils.deepHash(this.level)
     result = 31 * result + EngineApiPigeonUtils.deepHash(this.markCount)
     result = 31 * result + EngineApiPigeonUtils.deepHash(this.interruption)
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.freeBytes)
     return result
   }
   override fun toString(): String {
-    return "EngineSnapshot(state=$state, recordingId=$recordingId, positionMs=$positionMs, level=$level, markCount=$markCount, interruption=$interruption)"
+    return "EngineSnapshot(state=$state, recordingId=$recordingId, positionMs=$positionMs, level=$level, markCount=$markCount, interruption=$interruption, freeBytes=$freeBytes)"
   }
 }
 
@@ -330,6 +339,74 @@ data class MarkResult (
     return "MarkResult(id=$id, positionMs=$positionMs, index=$index)"
   }
 }
+
+/**
+ * A finished recording on disk (after Stop, or recovered after a crash).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class SavedRecording (
+  val id: String,
+  /** Absolute folder holding audio.m4a, marks.jsonl, peaks.bin, meta.json. */
+  val folder: String,
+  val createdAtMs: Long,
+  val durationMs: Long,
+  val marks: List<MarkResult>,
+  /** True when it was rebuilt after the app was killed mid-recording. */
+  val recovered: Boolean,
+  /** Why the engine stopped by itself ("low_storage"), null for a normal Stop. */
+  val stopReason: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): SavedRecording {
+      val id = pigeonVar_list[0] as String
+      val folder = pigeonVar_list[1] as String
+      val createdAtMs = pigeonVar_list[2] as Long
+      val durationMs = pigeonVar_list[3] as Long
+      val marks = pigeonVar_list[4] as List<MarkResult>
+      val recovered = pigeonVar_list[5] as Boolean
+      val stopReason = pigeonVar_list[6] as String?
+      return SavedRecording(id, folder, createdAtMs, durationMs, marks, recovered, stopReason)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      id,
+      folder,
+      createdAtMs,
+      durationMs,
+      marks,
+      recovered,
+      stopReason,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as SavedRecording
+    return EngineApiPigeonUtils.deepEquals(this.id, other.id) && EngineApiPigeonUtils.deepEquals(this.folder, other.folder) && EngineApiPigeonUtils.deepEquals(this.createdAtMs, other.createdAtMs) && EngineApiPigeonUtils.deepEquals(this.durationMs, other.durationMs) && EngineApiPigeonUtils.deepEquals(this.marks, other.marks) && EngineApiPigeonUtils.deepEquals(this.recovered, other.recovered) && EngineApiPigeonUtils.deepEquals(this.stopReason, other.stopReason)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.id)
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.folder)
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.createdAtMs)
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.durationMs)
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.marks)
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.recovered)
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.stopReason)
+    return result
+  }
+  override fun toString(): String {
+    return "SavedRecording(id=$id, folder=$folder, createdAtMs=$createdAtMs, durationMs=$durationMs, marks=$marks, recovered=$recovered, stopReason=$stopReason)"
+  }
+}
 private open class EngineApiPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -346,6 +423,11 @@ private open class EngineApiPigeonCodec : StandardMessageCodec() {
       131.toByte() -> {
         (readValue(buffer) as? List<Any?>)?.let {
           MarkResult.fromList(it)
+        }
+      }
+      132.toByte() -> {
+        (readValue(buffer) as? List<Any?>)?.let {
+          SavedRecording.fromList(it)
         }
       }
       else -> super.readValueOfType(type, buffer)
@@ -365,6 +447,10 @@ private open class EngineApiPigeonCodec : StandardMessageCodec() {
         stream.write(131)
         writeValue(stream, value.toList())
       }
+      is SavedRecording -> {
+        stream.write(132)
+        writeValue(stream, value.toList())
+      }
       else -> super.writeValue(stream, value)
     }
   }
@@ -374,11 +460,24 @@ private open class EngineApiPigeonCodec : StandardMessageCodec() {
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface RecorderHostApi {
   fun snapshot(): EngineSnapshot
+  /**
+   * Asks for the microphone if needed, then starts. Errors: mic_denied
+   * (details "permanent" when Android will not ask again), low_storage, mic_busy.
+   */
   suspend fun start(): EngineSnapshot
   fun pause(): EngineSnapshot
   fun resume(): EngineSnapshot
-  suspend fun stop(): EngineSnapshot
+  suspend fun stop(): SavedRecording?
+  /** Runs off the main thread: the journal fsync must not stall the UI. */
   fun mark(): MarkResult
+  /** Finalizes recordings left unfinished by a crash; returns them. */
+  suspend fun recover(): List<SavedRecording>
+  fun openAppSettings()
+  /**
+   * Debug builds only (ignored in release): record a clock-paced test tone instead of
+   * the microphone, for integration tests on emulators whose mic clock is unreliable.
+   */
+  fun useTestTone(on: Boolean)
 
   companion object {
     /** The codec used by RecorderHostApi. */
@@ -389,6 +488,7 @@ interface RecorderHostApi {
     @JvmOverloads
     fun setUp(binaryMessenger: BinaryMessenger, api: RecorderHostApi?, messageChannelSuffix: String = "") {
       val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+      val taskQueue = binaryMessenger.makeBackgroundTaskQueue()
       run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.snapshot$separatedMessageChannelSuffix", codec)
         if (api != null) {
@@ -469,11 +569,62 @@ interface RecorderHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.mark$separatedMessageChannelSuffix", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.mark$separatedMessageChannelSuffix", codec, taskQueue)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
               listOf(api.mark())
+            } catch (exception: Throwable) {
+              EngineApiPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.recover$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            CoroutineScope(Dispatchers.Main).launch {
+              val wrapped: List<Any?> = try {
+                listOf(api.recover())
+              } catch (exception: Throwable) {
+                EngineApiPigeonUtils.wrapError(exception)
+              }
+              reply.reply(wrapped)
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.openAppSettings$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              api.openAppSettings()
+              listOf(null)
+            } catch (exception: Throwable) {
+              EngineApiPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.useTestTone$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val onArg = args[0] as Boolean
+            val wrapped: List<Any?> = try {
+              api.useTestTone(onArg)
+              listOf(null)
             } catch (exception: Throwable) {
               EngineApiPigeonUtils.wrapError(exception)
             }
@@ -513,7 +664,7 @@ class RecorderEvents(private val binaryMessenger: BinaryMessenger, private val m
       }
     }
   }
-  /** A mark added outside the app UI (notification, tile, Live Activity). */
+  /** Any new mark, including ones added outside the app UI (notification, tile). */
   suspend fun onMark(markArg: MarkResult)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
@@ -521,6 +672,26 @@ class RecorderEvents(private val binaryMessenger: BinaryMessenger, private val m
       val channelName = "dev.flutter.pigeon.earmark.RecorderEvents.onMark$separatedMessageChannelSuffix"
       val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
       channel.send(listOf(markArg)) {
+        if (it is List<*>) {
+          if (it.size > 1) {
+            continuation.resumeWithException(FlutterError(it[0] as String, it[1] as String, it[2] as String?))
+          } else {
+            continuation.resume(Unit)
+          }
+        } else {
+          continuation.resumeWithException(EngineApiPigeonUtils.createConnectionError(channelName))
+        } 
+      }
+    }
+  }
+  /** A recording was saved (from the app, the notification, low storage or recovery). */
+  suspend fun onSaved(recordingArg: SavedRecording)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    return suspendCancellableCoroutine { continuation ->
+      val channelName = "dev.flutter.pigeon.earmark.RecorderEvents.onSaved$separatedMessageChannelSuffix"
+      val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+      channel.send(listOf(recordingArg)) {
         if (it is List<*>) {
           if (it.size > 1) {
             continuation.resumeWithException(FlutterError(it[0] as String, it[1] as String, it[2] as String?))

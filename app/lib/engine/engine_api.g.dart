@@ -108,6 +108,7 @@ int _deepHash(Object? value) {
 
 
 /// The engine's real state. The UI never shows "Recording" unless the engine says so.
+/// `recording` is reported only once microphone frames are actually arriving.
 enum SessionState {
   idle,
   starting,
@@ -126,6 +127,7 @@ class EngineSnapshot {
     required this.level,
     required this.markCount,
     this.interruption,
+    required this.freeBytes,
   });
 
   SessionState state;
@@ -136,13 +138,17 @@ class EngineSnapshot {
   /// Audio actually captured, paused time excluded (frame-counted).
   int positionMs;
 
-  /// Smoothed input level, 0.0 to 1.0.
+  /// Peak input level since the last snapshot, 0.0 to 1.0.
   double level;
 
+  /// User marks only (system markers such as "call" are not counted).
   int markCount;
 
-  /// Why capture is interrupted: "call", "mic_lost", "low_storage". Null otherwise.
+  /// Why capture is interrupted: "call", "mic_lost". Null otherwise.
   String? interruption;
+
+  /// Free space where recordings are stored.
+  int freeBytes;
 
   List<Object?> _toList() {
     return <Object?>[
@@ -152,6 +158,7 @@ class EngineSnapshot {
       level,
       markCount,
       interruption,
+      freeBytes,
     ];
   }
 
@@ -167,6 +174,7 @@ class EngineSnapshot {
       level: result[3]! as double,
       markCount: result[4]! as int,
       interruption: result[5] as String?,
+      freeBytes: result[6]! as int,
     );
   }
 
@@ -179,7 +187,7 @@ class EngineSnapshot {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(state, other.state) && _deepEquals(recordingId, other.recordingId) && _deepEquals(positionMs, other.positionMs) && _deepEquals(level, other.level) && _deepEquals(markCount, other.markCount) && _deepEquals(interruption, other.interruption);
+    return _deepEquals(state, other.state) && _deepEquals(recordingId, other.recordingId) && _deepEquals(positionMs, other.positionMs) && _deepEquals(level, other.level) && _deepEquals(markCount, other.markCount) && _deepEquals(interruption, other.interruption) && _deepEquals(freeBytes, other.freeBytes);
   }
 
   @override
@@ -188,7 +196,7 @@ class EngineSnapshot {
 
   @override
   String toString() {
-    return 'EngineSnapshot(state: $state, recordingId: $recordingId, positionMs: $positionMs, level: $level, markCount: $markCount, interruption: $interruption)';
+    return 'EngineSnapshot(state: $state, recordingId: $recordingId, positionMs: $positionMs, level: $level, markCount: $markCount, interruption: $interruption, freeBytes: $freeBytes)';
   }
 }
 
@@ -249,6 +257,85 @@ class MarkResult {
   }
 }
 
+/// A finished recording on disk (after Stop, or recovered after a crash).
+class SavedRecording {
+  SavedRecording({
+    required this.id,
+    required this.folder,
+    required this.createdAtMs,
+    required this.durationMs,
+    required this.marks,
+    required this.recovered,
+    this.stopReason,
+  });
+
+  String id;
+
+  /// Absolute folder holding audio.m4a, marks.jsonl, peaks.bin, meta.json.
+  String folder;
+
+  int createdAtMs;
+
+  int durationMs;
+
+  List<MarkResult> marks;
+
+  /// True when it was rebuilt after the app was killed mid-recording.
+  bool recovered;
+
+  /// Why the engine stopped by itself ("low_storage"), null for a normal Stop.
+  String? stopReason;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      id,
+      folder,
+      createdAtMs,
+      durationMs,
+      marks,
+      recovered,
+      stopReason,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static SavedRecording decode(Object result) {
+    result as List<Object?>;
+    return SavedRecording(
+      id: result[0]! as String,
+      folder: result[1]! as String,
+      createdAtMs: result[2]! as int,
+      durationMs: result[3]! as int,
+      marks: (result[4]! as List<Object?>).cast<MarkResult>(),
+      recovered: result[5]! as bool,
+      stopReason: result[6] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! SavedRecording || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(id, other.id) && _deepEquals(folder, other.folder) && _deepEquals(createdAtMs, other.createdAtMs) && _deepEquals(durationMs, other.durationMs) && _deepEquals(marks, other.marks) && _deepEquals(recovered, other.recovered) && _deepEquals(stopReason, other.stopReason);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'SavedRecording(id: $id, folder: $folder, createdAtMs: $createdAtMs, durationMs: $durationMs, marks: $marks, recovered: $recovered, stopReason: $stopReason)';
+  }
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -266,6 +353,9 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is MarkResult) {
       buffer.putUint8(131);
       writeValue(buffer, value.encode());
+    }    else if (value is SavedRecording) {
+      buffer.putUint8(132);
+      writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
     }
@@ -281,6 +371,8 @@ class _PigeonCodec extends StandardMessageCodec {
         return EngineSnapshot.decode(readValue(buffer)!);
       case 131:
         return MarkResult.decode(readValue(buffer)!);
+      case 132:
+        return SavedRecording.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -322,6 +414,8 @@ class RecorderHostApi {
     return pigeonVar_replyValue! as EngineSnapshot;
   }
 
+  /// Asks for the microphone if needed, then starts. Errors: mic_denied
+  /// (details "permanent" when Android will not ask again), low_storage, mic_busy.
   Future<EngineSnapshot> start() async {
     final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.start$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
@@ -376,7 +470,7 @@ class RecorderHostApi {
     return pigeonVar_replyValue! as EngineSnapshot;
   }
 
-  Future<EngineSnapshot> stop() async {
+  Future<SavedRecording?> stop() async {
     final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.stop$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
@@ -388,12 +482,13 @@ class RecorderHostApi {
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
         pigeonVar_replyList,
         pigeonVar_channelName,
-        isNullValid: false,
+        isNullValid: true,
     )
     ;
-    return pigeonVar_replyValue! as EngineSnapshot;
+    return pigeonVar_replyValue as SavedRecording?;
   }
 
+  /// Runs off the main thread: the journal fsync must not stall the UI.
   Future<MarkResult> mark() async {
     final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.mark$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
@@ -411,6 +506,61 @@ class RecorderHostApi {
     ;
     return pigeonVar_replyValue! as MarkResult;
   }
+
+  /// Finalizes recordings left unfinished by a crash; returns them.
+  Future<List<SavedRecording>> recover() async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.recover$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: false,
+    )
+    ;
+    return (pigeonVar_replyValue! as List<Object?>).cast<SavedRecording>();
+  }
+
+  Future<void> openAppSettings() async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.openAppSettings$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: true,
+    )
+    ;
+  }
+
+  /// Debug builds only (ignored in release): record a clock-paced test tone instead of
+  /// the microphone, for integration tests on emulators whose mic clock is unreliable.
+  Future<void> useTestTone(bool on) async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.useTestTone$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[on]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: true,
+    )
+    ;
+  }
 }
 
 abstract class RecorderEvents {
@@ -418,8 +568,11 @@ abstract class RecorderEvents {
 
   void onSnapshot(EngineSnapshot snapshot);
 
-  /// A mark added outside the app UI (notification, tile, Live Activity).
+  /// Any new mark, including ones added outside the app UI (notification, tile).
   void onMark(MarkResult mark);
+
+  /// A recording was saved (from the app, the notification, low storage or recovery).
+  void onSaved(SavedRecording recording);
 
   static void setUp(RecorderEvents? api, {
     BinaryMessenger? binaryMessenger,
@@ -460,6 +613,27 @@ abstract class RecorderEvents {
           final MarkResult arg_mark = args[0]! as MarkResult;
           try {
             api.onMark(arg_mark);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.earmark.RecorderEvents.onSaved$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final SavedRecording arg_recording = args[0]! as SavedRecording;
+          try {
+            api.onSaved(arg_recording);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

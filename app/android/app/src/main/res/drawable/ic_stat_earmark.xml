@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status bar, notification action and Quick Settings tile icon: the logo, one colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="1024" android:viewportHeight="1024">
+    <group android:translateY="60">
+        <path android:fillColor="#FFFFFF" android:fillAlpha="0.6" android:pathData="M234,530 a38,38 0 0 1 38,38 v64 a38,38 0 0 1 -76,0 v-64 a38,38 0 0 1 38,-38 z M790,510 a38,38 0 0 1 38,38 v104 a38,38 0 0 1 -76,0 v-104 a38,38 0 0 1 38,-38 z"/>
+        <path android:fillColor="#FFFFFF" android:pathData="M354,430 a38,38 0 0 1 38,38 v264 a38,38 0 0 1 -76,0 v-264 a38,38 0 0 1 38,-38 z M670,400 a38,38 0 0 1 38,38 v324 a38,38 0 0 1 -76,0 v-324 a38,38 0 0 1 38,-38 z M436,-60 H588 V838 L512,772 L436,838 Z"/>
+    </group>
+</vector>
