@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Earmark monochrome mark (Android themed icon, notification icon, iOS tinted icon)">
+  <!-- Single-colour version: used for the Android adaptive monochrome layer, the status-bar notification icon and the iOS 18+ tinted icon. -->
+  <g fill="#000">
+    <rect x="196" y="530" width="76" height="140" rx="38" opacity=".55"/>
+    <rect x="316" y="430" width="76" height="340" rx="38"/>
+    <rect x="632" y="400" width="76" height="400" rx="38"/>
+    <rect x="752" y="510" width="76" height="180" rx="38" opacity=".55"/>
+    <path d="M436 120 H588 V838 L512 772 L436 838 Z"/>
+  </g>
+</svg>
