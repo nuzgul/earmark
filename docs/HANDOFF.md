@@ -16,5 +16,5 @@ Phase 1 — Android engine + Record (`docs/PLAN.md` §5, §12):
 
 ## Commands (PowerShell, from `app/`)
 - `flutter analyze` · `flutter test` · `flutter test --update-goldens` (after an intended visual change)
-- `flutter build apk --debug` → `appuildpp\outputslutter-apkpp-debug.apk`
+- `flutter build apk --debug` → `app/build/app/outputs/flutter-apk/app-debug.apk`
 - Regenerate the bridge after editing the contract: `dart run pigeon --input pigeons/engine_api.dart`
