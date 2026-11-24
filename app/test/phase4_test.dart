@@ -54,6 +54,12 @@ Widget _record(Services s) => MediaQuery(
       child: MaterialApp(debugShowCheckedModeBanner: false, theme: buildTheme(Brightness.dark), home: RecordScreen(services: s)),
     );
 
+/// Goldens are compared on Windows only, where they are rendered (fonts rasterise differently on
+/// Linux CI); the functional checks around them run everywhere.
+Future<void> _golden(Finder f, String file) async {
+  if (Platform.isWindows) await expectLater(f, matchesGoldenFile(file));
+}
+
 /// A 390 × 844 phone, as the other goldens use.
 void _phone(WidgetTester t) {
   t.view.physicalSize = const Size(390 * 3, 844 * 3);
@@ -105,7 +111,7 @@ void main() {
       await t.pump();
       expect(find.textContaining("isn't on sale yet"), findsOneWidget);
       expect(t.getSemantics(find.bySemanticsLabel('Buy Pro')), isSemantics(label: 'Buy Pro', isButton: true, isEnabled: false));
-      await expectLater(find.byType(ProSheet), matchesGoldenFile('goldens/pro_sheet_unavailable_dark.png'));
+      await _golden(find.byType(ProSheet), 'goldens/pro_sheet_unavailable_dark.png');
     });
 
     testWidgets('buy: the store confirms, Pro turns on and is remembered', (t) async {
@@ -145,7 +151,7 @@ void main() {
     final lib = LibraryStore(_root());
     final s = Services(engine: EngineClient(api: FakeHostApi()), library: lib, newPlayer: FakePlayer.new);
     await t.pumpWidget(_host(SettingsSheet(services: s)));
-    await expectLater(find.byType(SettingsSheet), matchesGoldenFile('goldens/settings_dark.png'));
+    await _golden(find.byType(SettingsSheet), 'goldens/settings_dark.png');
 
     await t.tap(find.bySemanticsLabel('5 seconds'));
     await t.pump();
@@ -180,7 +186,7 @@ void main() {
       await heartbeat(const Duration(seconds: 21));
       final pill = find.ancestor(of: find.bySemanticsLabel('Recording'), matching: find.byType(AnimatedOpacity)).first;
       expect(t.widget<AnimatedOpacity>(pill).opacity, 0.35);
-      await expectLater(find.byType(RecordScreen), matchesGoldenFile('goldens/record_calm_dark.png'));
+      await _golden(find.byType(RecordScreen), 'goldens/record_calm_dark.png');
 
       await t.tap(find.bySemanticsLabel('Stop and save'));
       await heartbeat(const Duration(milliseconds: 500));
@@ -216,7 +222,7 @@ void main() {
       final g = await t.startGesture(t.getCenter(find.bySemanticsLabel('Bookmark this moment')));
       await t.pump(const Duration(milliseconds: 500));
       expect(find.text('Quote'), findsOneWidget);
-      await expectLater(find.byType(RecordScreen), matchesGoldenFile('goldens/record_quick_labels_dark.png'));
+      await _golden(find.byType(RecordScreen), 'goldens/record_quick_labels_dark.png');
       await g.moveTo(t.getCenter(find.text('Quote')));
       await t.pump();
       await g.up();

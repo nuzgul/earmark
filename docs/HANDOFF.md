@@ -19,23 +19,25 @@
   - Info.plist: microphone text, `UIBackgroundModes: audio`, `NSSupportsLiveActivities`; `PrivacyInfo.xcprivacy` (disk space, file timestamps, boot time). Runner Debug now defines `DEBUG` for Swift.
   - CI `ios` job: `flutter build ios --simulator --debug`, then `tool/integration_ios.sh` (both integration tests on a simulator with the test tone).
 - Verified on CI (2026-11-24, run 45360561974, iPhone 17 Pro simulator): app + widget extension compile; clip test passed (jump lands on the 3 s pre-roll point, clip 20.000 s, start pitch 400.0 Hz = expected, source unchanged); owner sequence passed (mark 1 at 10.011 s, mark 2 at 20.007 s, pause held 5 s); five taps → five marks. Live Activity created, updated and ended (simulator log); no engine errors. The first run hung when `flutter test` ran both files in one call; `tool/integration_ios.sh` now runs each file alone with a 7-minute limit, saves the app's simulator log and a hang screenshot (artifact `ios-integration-logs`).
-- **Phase 4 built (Pro + polish), device checks in progress** (commit dfdcac7):
+- **Phase 4 done (Pro + polish)** (commits dfdcac7 and later):
   - Pro (`lib/features/pro/pro.dart`): `Store` interface, `IapStore` (in_app_purchase, product `earmark_pro`, non-consumable, acknowledged), `NoStore` (tests, unconfigured stores), `Pro` state, Pro sheet (Buy disabled with the reason when not on sale; Restore; "No Pro purchase found" after 8 s). Entitlement = `pro` in settings.json (no server; accepted).
   - Settings sheet (`lib/features/settings/`): pre-roll Off/3/5/10 s, calm screen, quick labels (Pro), Recently deleted, Pro, privacy text, licences. Gear at the top right of idle Record.
   - Record: calm screen (20 s, black, first touch only wakes, Bookmark still marks, off with a screen reader); Bookmark marks on raw pointer-down; hold 450 ms → quick-label arc (Pro), labels saved to the live recording's `library.json`; screen-reader actions "Bookmark as <label>".
   - Playback: "Share several clips" (Pro, `batch_sheet.dart`), speed 1×/1.5×/2×.
   - Audit: `docs/ui-premium/AUDIT-expensive-2026-11-24.md` (fixed: transform-only level line and Record button, haptics on saved/failed, Settings at 200 % text). For the owner: sheets growing from their trigger (B1), deleted-row slide-out (B7).
   - Release manifest: INTERNET removed. It came from Play Billing 9.1's dependency `com.google.android.datatransport:transport-backend-cct` (Google usage logs), not from billing itself (Play Store IPC). Release APK permissions now: RECORD_AUDIO, FOREGROUND_SERVICE(_MICROPHONE), POST_NOTIFICATIONS, com.android.vending.BILLING.
-  - Verified: `flutter analyze` clean; `flutter test` 44/44 (new: `phase4_test.dart`, `expensive_test.dart`, 4 new goldens); release APK builds; release build installed and launched on the owner's Galaxy S24 FE (Android 17) without a crash.
-  - Pending: on the S24, open Settings → Earmark Pro (billing connects without INTERNET; expect "isn't on sale yet", no crash), then `tool/integration_android.sh R5CX92TT0VB` (test tone; flutter test uninstalls the test app at the end — Earmark was not on the phone before). The phone was busy (call + game) on 2026-11-24, so this waited. CI for dfdcac7 (iOS simulator run of the new Bookmark code) was running.
+  - Verified (2026-11-24): `flutter analyze` clean; `flutter test` 44/44 (new: `phase4_test.dart`, `expensive_test.dart`, 4 goldens compared on Windows only); release APK builds without INTERNET.
+  - Owner's Galaxy S24 FE (Android 17), release build: Settings → Earmark Pro opened Play Billing with no INTERNET permission → "Pro isn't on sale yet", no crash, app alive 10 s later, no crash-buffer entries, no background jobs scheduled.
+  - S24, `tool/integration_android.sh R5CX92TT0VB` (test tone): all passed — mark 1 at 10.069 s, mark 2 at 20.032 s, pause held 5 s; clip 20.010 s, start pitch 400.0 Hz, flag jump on the pre-roll point. `flutter test` uninstalled the test app afterwards (Earmark was not on the phone before).
+  - CI dfdcac7: iOS simulator passed with the new Bookmark code (mark 1 at 10.013 s, mark 2 at 20.007 s, clip 20.000 s); Android CI failed only on the new goldens (Linux fonts) → now compared on Windows only.
 - Not verified: anything on a physical phone (`docs/DEVICE-CHECKS.md` A1–A12, B1–B7, C1–C13): real microphone timing, calls, Bluetooth, lock-screen and Control Center marks, background recording. iOS device builds need an Apple Developer account (signing).
 
 ## When the owner says "proceed"
-Phase 3 code is done and green on the simulator. Next, in order:
-1. iPhone: join the Apple Developer Program (99 USD/year), set the team in Xcode signing (Runner + EarmarkWidgets), TestFlight build via CI (needs signing secrets) or a Mac; then `docs/DEVICE-CHECKS.md` part C.
-2. Android phone: device checks A1–A12 and B1–B7.
-3. Phase 4 (Pro + polish, `docs/PLAN.md` §12) — can start now; nothing above blocks it.
-CI notes: every push to code runs Android (Linux) and iOS (macOS, ~8 min). Docs-only pushes skip CI. A private repo has ~200 macOS minutes a month on the free plan; about 55 were used on 2026-11-24.
+Phases 0–4 are done. Next, in order:
+1. Phase 5 (store, `docs/PLAN.md` §12): Play Console app + internal testing track, App Store Connect + TestFlight (Apple Developer Program, 99 USD/year), product `earmark_pro` at the chosen price, listings, screenshots, privacy labels ("Data not collected"), Play foreground-service declaration with a short video. Then test a real Pro purchase on a test track.
+2. Device checks on real phones: Android A1–A12, B1–B7 (S24 available); iPhone C1–C13.
+3. Owner decisions from the audit: sheets that grow from their trigger (B1), deleted mark rows that slide out (B7).
+CI notes: every code push runs Android (Linux) and iOS (macOS, ~8 min). Docs-only pushes skip CI. A private repo has ~200 macOS minutes a month on the free plan; about 65 were used on 2026-11-24.
 
 ## Commands
 PowerShell, from `app/`:
