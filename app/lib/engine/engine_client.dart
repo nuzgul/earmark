@@ -83,7 +83,12 @@ class EngineClient implements RecorderEvents {
 
   /// The saved recording, or null if saving failed (the engine retries on next launch).
   Future<SavedRecording?> stop() async {
-    final saved = await _api.stop();
+    SavedRecording? saved;
+    try {
+      saved = await _api.stop();
+    } on PlatformException {
+      saved = null; // the engine keeps the audio and finishes it on the next launch
+    }
     if (saved != null) lastSaved.value = saved;
     await refresh();
     return saved;
@@ -125,7 +130,10 @@ class EngineClient implements RecorderEvents {
   @visibleForTesting
   Future<void> useTestTone(bool on) => _api.useTestTone(on);
 
-  void dispose() => _watchdog?.cancel();
+  void dispose() {
+    _watchdog?.cancel();
+    RecorderEvents.setUp(null);
+  }
 
   void _apply(EngineSnapshot s) {
     if (s.recordingId != snapshot.value.recordingId) marks.value = const [];

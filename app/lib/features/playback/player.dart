@@ -15,6 +15,9 @@ abstract class Player {
   Future<void> seek(int ms);
   Future<void> setSpeed(double speed);
 
+  /// The position right now (positionMs is updated only a few times a second).
+  int currentMs();
+
   /// Plays exactly [startMs, endMs) once (clip preview).
   Future<void> playRange(int startMs, int endMs);
   Future<void> dispose();
@@ -67,6 +70,9 @@ class JustAudioPlayer implements Player {
 
   @override
   Future<void> setSpeed(double speed) => _p.setSpeed(speed);
+
+  @override
+  int currentMs() => _p.position.inMilliseconds;
 
   @override
   Future<void> playRange(int startMs, int endMs) async {

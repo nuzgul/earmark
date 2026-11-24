@@ -20,8 +20,8 @@ class EngineLogicTest {
     @Test
     fun adtsRoundTripReadsEveryFrameAndTheFormat() {
         val sizes = mutableListOf<Int>()
-        val format = Adts.readFrames(ByteArrayInputStream(stream(200, 310, 5))) { _, p -> sizes += p.size }
-        assertEquals(Adts.Format(48_000, 1), format)
+        val scan = Adts.readFrames(ByteArrayInputStream(stream(200, 310, 5))) { _, p -> sizes += p.size }
+        assertEquals(Adts.Format(48_000, 1), scan.format)
         assertEquals(listOf(200, 310, 5), sizes)
     }
 
@@ -32,7 +32,7 @@ class EngineLogicTest {
         var count = 0
         Adts.readFrames(ByteArrayInputStream(cut)) { _, _ -> count++ }
         assertEquals(1, count)
-        assertNull(Adts.readFrames(ByteArrayInputStream(ByteArray(3))) { _, _ -> })
+        assertNull(Adts.readFrames(ByteArrayInputStream(ByteArray(3))) { _, _ -> }.format)
     }
 
     @Test

@@ -11,10 +11,11 @@ import java.nio.ByteOrder
 /** Lossless clip: copies the AAC frames of a time range into a new .m4a (no re-encode). */
 object ClipExporter {
     private const val KEEP_MS = 24 * 3600 * 1000L
+    private const val MAX_STEM_BYTES = 200 // file names allow 255 bytes; ".m4a" and ".tmp" are added
 
     /**
-     * Copies [startMs, endMs) of `folder/audio.m4a` into [outDir]/[fileName]. Accurate to one AAC
-     * frame (~21 ms). The source is only read. Clips older than 24 h in [outDir] are removed.
+     * Copies [startMs, endMs) of `folder/audio.m4a` into [outDir]/[clipName] of [fileName]. Accurate
+     * to one AAC frame (~21 ms). The source is only read. Clips older than 24 h in [outDir] are removed.
      */
     fun export(folder: File, startMs: Long, endMs: Long, fileName: String, outDir: File): File {
         require(endMs > startMs) { "empty range" }
@@ -22,7 +23,7 @@ object ClipExporter {
         val now = System.currentTimeMillis()
         outDir.listFiles().orEmpty().filter { now - it.lastModified() > KEEP_MS }.forEach { it.delete() }
 
-        val safe = fileName.replace(Regex("[\\\\/:*?\"<>|\\n\\r]"), "-").take(120).ifBlank { "clip.m4a" }
+        val safe = clipName(fileName)
         val out = File(outDir, safe)
         val tmp = File(outDir, "$safe.tmp")
         val ex = MediaExtractor()
@@ -31,6 +32,10 @@ object ClipExporter {
             ex.setDataSource(File(folder, Finalizer.AUDIO).path)
             ex.selectTrack(0)
             val format = ex.getTrackFormat(0)
+            // Seeking past the end would quietly export the last frame instead.
+            if (format.containsKey(MediaFormat.KEY_DURATION) && startMs * 1000 >= format.getLong(MediaFormat.KEY_DURATION)) {
+                throw FlutterError("clip_failed", "The clip starts after the end of the recording.")
+            }
             val muxer = MediaMuxer(tmp.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             try {
                 val track = muxer.addTrack(format)
@@ -59,6 +64,35 @@ object ClipExporter {
         out.delete()
         check(tmp.renameTo(out)) { "could not write the clip" }
         return out
+    }
+
+    /**
+     * A safe file name for a clip titled [title]: path, reserved and control characters become "-",
+     * the stem is cut to [MAX_STEM_BYTES] UTF-8 bytes without splitting a character, and it always
+     * ends in ".m4a" (Dart sends names with or without it).
+     */
+    fun clipName(title: String): String {
+        var stem = title.trim()
+        if (stem.endsWith(".m4a", ignoreCase = true)) stem = stem.dropLast(4)
+        val out = StringBuilder()
+        var bytes = 0
+        var i = 0
+        while (i < stem.length) {
+            var cp = stem.codePointAt(i)
+            i += Character.charCount(cp)
+            val bad = cp in 0xD800..0xDFFF || Character.isISOControl(cp) || (cp < 0x80 && "\\/:*?\"<>|".indexOf(cp.toChar()) >= 0)
+            if (bad) cp = '-'.code // lone surrogates too: they have no UTF-8 form
+            val n = when {
+                cp < 0x80 -> 1
+                cp < 0x800 -> 2
+                cp < 0x10000 -> 3
+                else -> 4
+            }
+            if (bytes + n > MAX_STEM_BYTES) break
+            out.appendCodePoint(cp)
+            bytes += n
+        }
+        return out.toString().trimStart('.', ' ').trimEnd().ifEmpty { "clip" } + ".m4a"
     }
 }
 

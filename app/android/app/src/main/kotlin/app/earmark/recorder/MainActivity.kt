@@ -101,7 +101,8 @@ class MainActivity : FlutterActivity(), RecorderEngine.Listener {
                 val permanent = !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
                 throw FlutterError("mic_denied", "Earmark needs the microphone to record.", if (permanent) "permanent" else null)
             }
-            RecorderEngine.start()
+            // Off the main thread: opening the mic and the encoder and writing files can take a while.
+            withContext(Dispatchers.IO) { RecorderEngine.start() }
             RecorderService.start(this@MainActivity)
             // "Recording" only once the microphone actually delivers audio.
             withTimeoutOrNull(3000) {
@@ -133,6 +134,8 @@ class MainActivity : FlutterActivity(), RecorderEngine.Listener {
             withContext(Dispatchers.IO) {
                 try {
                     ClipExporter.export(File(folder), startMs, endMs, fileName, File(cacheDir, "clips")).absolutePath
+                } catch (e: FlutterError) {
+                    throw e // already says what went wrong
                 } catch (e: Exception) {
                     throw FlutterError("clip_failed", "The clip could not be made.", e.message)
                 }

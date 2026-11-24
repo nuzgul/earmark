@@ -18,8 +18,8 @@ class MarkTileService : TileService() {
     override fun onClick() {
         RecorderEngine.init(this)
         if (RecorderEngine.isActive) {
-            runCatching { RecorderEngine.mark("tile") }
-                .onSuccess { refresh("Mark ${it.index} · ${RecorderService.timeText(it.positionMs)}") }
+            // The mark's fsync runs off the main thread; the tile updates once it is on disk.
+            RecorderEngine.markInBackground("tile") { refresh("Mark ${it.index} · ${RecorderService.timeText(it.positionMs)}") }
             return
         }
         // Not recording: open the app (recording can only start from the visible app).

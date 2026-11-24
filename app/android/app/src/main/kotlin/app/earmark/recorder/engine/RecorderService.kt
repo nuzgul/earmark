@@ -45,6 +45,7 @@ class RecorderService : Service(), RecorderEngine.Listener {
     }
 
     private var shown: List<Any?>? = null
+    private var foreground = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -75,14 +76,16 @@ class RecorderService : Service(), RecorderEngine.Listener {
         when (intent?.action) {
             ACTION_START -> {
                 val n = build(RecorderEngine.snapshot())
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // FOREGROUND_SERVICE_TYPE_MICROPHONE is API 30; on 29 the manifest type applies.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
                 } else {
                     startForeground(NOTIFICATION_ID, n)
                 }
+                foreground = true
                 refreshTile()
             }
-            ACTION_MARK -> runCatching { RecorderEngine.mark("notification") }
+            ACTION_MARK -> RecorderEngine.markInBackground("notification") // fsync off the main thread
             ACTION_PAUSE -> RecorderEngine.pause()
             ACTION_RESUME -> RecorderEngine.resume()
             ACTION_STOP -> thread(name = "earmark-stop") { RecorderEngine.stop() }
@@ -92,13 +95,19 @@ class RecorderService : Service(), RecorderEngine.Listener {
     }
 
     override fun onSnapshot(s: EngineSnapshot) {
-        if (s.state == SessionState.IDLE) return stopNow()
+        // Snapshots arrive by post and can be stale (an IDLE from the last session after a new start,
+        // a FINALIZING after the save), so decide from the engine's live state. Never stop before
+        // startForeground ran: a service started with startForegroundService would crash.
+        if (!foreground) return
+        val live = RecorderEngine.liveId ?: return stopNow()
+        if (s.recordingId != live) return
         val key = listOf(s.state, s.markCount, s.interruption)
         if (key == shown) return // the chronometer ticks by itself; update only on real changes
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, build(s))
     }
 
     private fun stopNow() {
+        foreground = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

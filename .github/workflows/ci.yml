@@ -49,7 +49,7 @@ jobs:
     # (10 s, mark, pause 5 s, resume 10 s, mark), five fast taps, and the lossless clip test.
     # The engine records its debug-only test tone, so no microphone is needed.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -77,6 +77,12 @@ jobs:
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none
           working-directory: app
           script: bash tool/integration_android.sh emulator-5554
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-integration-logs
+          path: app/build/ci-logs/
+          if-no-files-found: ignore
 
   ios:
     # The owner has no Mac: this job is the iOS build and test machine. It compiles the app and the

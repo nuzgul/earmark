@@ -86,7 +86,7 @@ class _RecordScreenState extends State<RecordScreen> {
   }
 
   void _onLabel(MarkResult m, String label) {
-    final id = engine.snapshot.value.recordingId;
+    final id = _markRecording[m.id];
     setState(() => _labels[m.id] = label);
     if (id != null) widget.services.library.labelLiveMark(id, m.id, label);
     SemanticsService.sendAnnouncement(View.of(context), 'Mark ${m.index} labelled $label', TextDirection.ltr);
@@ -133,8 +133,13 @@ class _RecordScreenState extends State<RecordScreen> {
     }
   }
 
+  bool _stopping = false;
+
   Future<void> _stop() async {
+    if (_stopping) return; // a second tap would ask an engine that already stopped
+    _stopping = true;
     final saved = await engine.stop();
+    _stopping = false;
     if (!mounted) return;
     // A job finished, or failed: one haptic with the visual change (expensive A5).
     if (saved != null) HapticFeedback.lightImpact();
@@ -155,8 +160,13 @@ class _RecordScreenState extends State<RecordScreen> {
     ));
   }
 
+  /// Mark id → recording id at the moment of the mark.
+  final _markRecording = <String, String?>{};
+
   Future<MarkResult?> _mark() async {
+    final recordingId = engine.snapshot.value.recordingId;
     final m = await engine.mark();
+    if (m != null) _markRecording[m.id] = recordingId;
     if (m == null && mounted) _say('Nothing is recording.');
     return m;
   }
@@ -252,8 +262,9 @@ class _RecordScreenState extends State<RecordScreen> {
           const SizedBox(height: Space.xl),
           ValueListenableBuilder(
             valueListenable: engine.lastSaved,
-            builder: (context, r, _) =>
-                r == null ? const SizedBox.shrink() : _SavedStrip(recording: r, onTap: () => _openRecording(r.id)),
+            builder: (context, r, _) => r == null || widget.services.library.byId(r.id)?.deletedAt != null
+                ? const SizedBox.shrink()
+                : _SavedStrip(recording: r, onTap: () => _openRecording(r.id)),
           ),
           if (_micDenied != null) ...[
             const SizedBox(height: Space.m),
@@ -286,7 +297,7 @@ class _RecordScreenState extends State<RecordScreen> {
           builder: (context, box) {
             final landscape = box.maxWidth > box.maxHeight;
             final lib = widget.services.library;
-            final info = AbsorbPointer(absorbing: _calm, child: _liveInfo(s, stale, marks));
+            final info = AbsorbPointer(absorbing: _calm, child: _liveInfo(context, s, stale, marks));
             final zone = BookmarkZone(
               onMark: _mark,
               enabled: _canMark(s),
@@ -324,7 +335,8 @@ class _RecordScreenState extends State<RecordScreen> {
   bool _canMark(EngineSnapshot s) =>
       s.state == SessionState.recording || s.state == SessionState.paused || s.state == SessionState.interrupted;
 
-  Widget _liveInfo(EngineSnapshot s, bool stale, List<MarkResult> marks) {
+  /// [context] is below the calm theme, so calm colours apply (light theme included).
+  Widget _liveInfo(BuildContext context, EngineSnapshot s, bool stale, List<MarkResult> marks) {
     final c = AppColors.of(context);
     final text = Theme.of(context).textTheme;
     final capturing = s.state == SessionState.recording && !stale;
@@ -342,7 +354,12 @@ class _RecordScreenState extends State<RecordScreen> {
     final recent = marks.reversed.take(2).toList();
     // Calm: everything but the timer, the mark count and the Bookmark zone steps back.
     Widget dim(Widget w) => AnimatedOpacity(opacity: _calm ? 0.35 : 1, duration: Motion.of(context, Motion.entrance), child: w);
-    return Column(
+    // Fills the space, and scrolls instead of pushing Pause/Stop off a small screen.
+    return LayoutBuilder(
+      builder: (context, box) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: box.maxHeight),
+          child: IntrinsicHeight(child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -375,20 +392,18 @@ class _RecordScreenState extends State<RecordScreen> {
           ),
         ),
         const SizedBox(height: Space.m),
-        dim(LevelLine(level: capturing ? s.level : 0)),
+        dim(RepaintBoundary(child: LevelLine(level: capturing ? s.level : 0))),
         const SizedBox(height: Space.xl),
         // Takes what is left, so large text never pushes the controls off screen.
-        Expanded(
-          child: dim(ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              for (final m in recent) ...[
-                MarkRow(mark: m, highlight: m.id == _glowId, label: _labels[m.id]),
-                const SizedBox(height: Space.s),
-              ],
+        dim(Column(
+          children: [
+            for (final m in recent) ...[
+              MarkRow(mark: m, highlight: m.id == _glowId, label: _labels[m.id]),
+              const SizedBox(height: Space.s),
             ],
-          )),
-        ),
+          ],
+        )),
+        const Spacer(),
         const SizedBox(height: Space.s),
         dim(Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -411,6 +426,8 @@ class _RecordScreenState extends State<RecordScreen> {
           ],
         )),
       ],
+    ))),
+      ),
     );
   }
 }

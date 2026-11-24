@@ -54,19 +54,34 @@ class _ClipSheetState extends State<ClipSheet> {
     super.dispose();
   }
 
+  /// Like clamp, but never throws when the range is empty (a recording shorter than [minMs]).
+  static int _fit(int v, int lo, int hi) => hi < lo ? lo : v.clamp(lo, hi);
+
   void _setStart(int v) => setState(() {
-        _start = v.clamp(math.max(0, _end - maxMs), _end - minMs);
+        _start = _fit(v, math.max(_viewStart, math.max(0, _end - maxMs)), _end - minMs);
       });
 
   void _setEnd(int v) => setState(() {
-        _end = v.clamp(_start + minMs, math.min(r.durationMs, _start + maxMs));
+        _end = _fit(v, _start + minMs, math.min(_viewEnd, math.min(r.durationMs, _start + maxMs)));
       });
 
+  bool _opening = false;
+
   Future<void> _togglePreview() async {
-    final p = _preview ??= widget.services.newPlayer();
+    if (_opening) return; // a second tap while the file opens
+    final p = _preview ?? widget.services.newPlayer();
+    if (_preview == null) setState(() => _preview = p); // shows Stop preview and the playhead at once
     if (p.playing.value) return p.pause();
-    await p.open(r.audioPath);
-    await p.playRange(_start, _end);
+    _opening = true;
+    try {
+      await p.open(r.audioPath);
+      if (!mounted) return;
+      await p.playRange(_start, _end);
+    } catch (_) {
+      if (mounted) setState(() => _error = "This recording can't be played.");
+    } finally {
+      _opening = false;
+    }
   }
 
   Future<void> _share() async {
@@ -81,6 +96,8 @@ class _ClipSheetState extends State<ClipSheet> {
       await SharePlus.instance.share(ShareParams(files: [XFile(path, mimeType: 'audio/mp4')], title: name));
     } on PlatformException catch (e) {
       _error = e.message ?? 'The clip could not be made.';
+    } catch (_) {
+      _error = 'The clip could not be made.';
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -108,9 +125,9 @@ class _ClipSheetState extends State<ClipSheet> {
         const SizedBox(height: Space.l),
         _range(context),
         const SizedBox(height: Space.l),
-        Row(children: [
+        // Wraps to two lines with large text.
+        Wrap(alignment: WrapAlignment.spaceBetween, runSpacing: Space.s, children: [
           _Nudge(label: 'Start', onMinus: () => _setStart(_start - 1000), onPlus: () => _setStart(_start + 1000)),
-          const Spacer(),
           _Nudge(label: 'End', onMinus: () => _setEnd(_end - 1000), onPlus: () => _setEnd(_end + 1000)),
         ]),
         if (_error != null) ...[
@@ -164,7 +181,8 @@ class _ClipSheetState extends State<ClipSheet> {
               onDecrease: () => set(ms - 1000),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onHorizontalDragUpdate: (d) => set((label == 'Start' ? _start : _end) + dms(d.delta.dx)),
+                // Fixed while exporting: what is shared is what was shown.
+                onHorizontalDragUpdate: _exporting ? null : (d) => set((label == 'Start' ? _start : _end) + dms(d.delta.dx)),
                 child: Center(
                   child: Container(
                     width: 6,

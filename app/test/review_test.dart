@@ -59,6 +59,15 @@ late LibraryStore _lib;
 
 Services _services(RecorderHostApi api) => Services(engine: EngineClient(api: api), library: _lib, newPlayer: FakePlayer.new);
 
+/// Lets real file I/O started inside the widget test finish (and its continuations run).
+Future<void> _until(WidgetTester t, bool Function() done) async {
+  for (var i = 0; i < 200 && !done(); i++) {
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+    await t.pump();
+  }
+  expect(done(), isTrue, reason: 'file I/O did not finish in 6 s');
+}
+
 Future<void> _heartbeat(WidgetTester t, EngineClient e, FakeHostApi api, Duration d) async {
   for (var left = d; left > Duration.zero; left -= const Duration(milliseconds: 250)) {
     e.onSnapshot(api.now);
@@ -216,10 +225,10 @@ void main() {
     final title = _lib.byId('r1')!.title;
     await t.drag(find.text(title), const Offset(-500, 0));
     await t.pumpAndSettle();
-    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-    await t.pump();
+    await _until(t, () => _lib.byId('r1')?.deletedAt != null);
     expect(find.text(title), findsNothing);
-    await t.runAsync(() => _lib.restore('r1'));
+    unawaited(_lib.restore('r1')); // as Recently deleted does
+    await _until(t, () => _lib.byId('r1')?.deletedAt == null);
     await t.pumpAndSettle();
     expect(find.text(title), findsOneWidget);
   });
@@ -258,11 +267,61 @@ void main() {
     await t.pump();
     await t.tap(find.bySemanticsLabel(RegExp(r'^\+ Mark at')));
     await t.tap(find.bySemanticsLabel(RegExp(r'^\+ Mark at')));
-    for (var i = 0; i < 10; i++) {
-      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
-      await t.pump();
-    }
+    await _until(t, () => _lib.byId('r1')!.userMarks.length == 5);
     final ns = _lib.byId('r1')!.userMarks.map((m) => m.n).toList();
     expect(ns.toSet().length, ns.length, reason: 'numbers $ns');
+  });
+
+  group('data', () {
+    test('two quick "+ Mark" adds get two numbers and both are kept', () async {
+      final m = await Future.wait([_lib.addMark('r1', 15000), _lib.addMark('r1', 45000)]);
+      expect(m.map((x) => x.name).toSet(), {'Mark 4', 'Mark 5'});
+      final again = LibraryStore(_lib.root);
+      await again.load();
+      expect(again.byId('r1')!.userMarks, hasLength(5));
+    });
+
+    test('quick setting changes all survive', () async {
+      await Future.wait([_lib.setCalmMode(false), _lib.setPreRollSeconds(10), _lib.setPro(true), _lib.setPreRoll(false)]);
+      final again = LibraryStore(_lib.root);
+      await again.load();
+      expect((again.calmMode, again.preRollSeconds, again.pro, again.preRoll), (false, 10, true, false));
+    });
+
+    test('a damaged library.json is kept aside and its added marks survive the next edit', () async {
+      final f = File('${_lib.root}/r1/library.json');
+      f.writeAsStringSync('{"added":[{"id":"u1","pos_ms":5000,"n":9}],"labels":{},"deleted":[]}}');
+      await _lib.load();
+      await _lib.renameMark('r1', 'r1-m1', 'Intro');
+      expect(f.readAsStringSync(), contains('"u1"'));
+      expect(File('${f.path}.damaged').existsSync(), isTrue);
+      expect(_lib.byId('r1')!.userMarks.map((m) => m.name), containsAll(['Intro', 'Mark 9']));
+    });
+
+    test('one unreadable folder or odd setting never hides the library', () async {
+      final bad = Directory('${_lib.root}/bad')..createSync();
+      File('${bad.path}/audio.m4a').writeAsBytesSync([0]);
+      File('${bad.path}/meta.json').writeAsStringSync('{"id": 5, "created_at": "x"}');
+      File('${Directory(_lib.root!).parent.path}/settings.json').writeAsStringSync('{"pre_roll_s": 5.0, "quick_labels": "Idea"}');
+      await _lib.load();
+      expect(_lib.byId('r1'), isNotNull);
+      expect(_lib.preRollSeconds, 5);
+      expect(_lib.quickLabels, LibraryStore.defaultQuickLabels);
+    });
+
+    test('day groups count calendar days, also across a DST change', () {
+      expect(dayGroup(DateTime(2026, 3, 29, 12), DateTime(2026, 3, 30, 0, 30)), 'Yesterday');
+      expect(dayGroup(DateTime(2026, 3, 23, 23, 50), DateTime(2026, 3, 30, 0, 10)), 'Older');
+      expect(dayGroup(DateTime(2026, 10, 25, 1), DateTime(2026, 10, 25, 23)), 'Today');
+    });
+
+    test('clip file names stay short with a long title and label', () async {
+      await _lib.rename('r1', 'A very long recording title ' * 6);
+      await _lib.renameMark('r1', 'r1-m1', 'A label that goes on and on ' * 4);
+      final r = _lib.byId('r1')!;
+      final name = clipFileName(r, r.userMarks.first, 16000, 36000);
+      expect(name.length, lessThan(130));
+      expect(name, endsWith('.m4a'));
+    });
   });
 }

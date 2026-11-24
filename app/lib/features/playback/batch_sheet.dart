@@ -33,14 +33,18 @@ class _BatchClipSheetState extends State<BatchClipSheet> {
     final files = <XFile>[];
     try {
       for (final (i, m) in marks.indexed) {
+        if (!mounted) return;
         setState(() => _making = i + 1);
         final w = clipWindow(m.posMs, r.durationMs);
         final path = await widget.services.engine.exportClip(r.folder, w.start, w.end, clipFileName(r, m, w.start, w.end));
         files.add(XFile(path, mimeType: 'audio/mp4'));
       }
+      if (!mounted) return; // closed meanwhile: do not open a share sheet for it
       await SharePlus.instance.share(ShareParams(files: files, title: '${r.title} — ${files.length} clips'));
     } on PlatformException catch (e) {
       _error = e.message ?? 'A clip could not be made.';
+    } catch (_) {
+      _error = 'A clip could not be made.';
     } finally {
       if (mounted) setState(() => _making = null);
     }
@@ -53,7 +57,9 @@ class _BatchClipSheetState extends State<BatchClipSheet> {
     final marks = widget.recording.userMarks;
     final n = _picked.length;
     final busy = _making != null;
-    return Column(
+    return PopScope(
+      canPop: !busy, // not closed halfway through the export
+      child: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -61,9 +67,7 @@ class _BatchClipSheetState extends State<BatchClipSheet> {
         const SizedBox(height: Space.xs),
         Text('20 s around each mark, as separate files.', style: text.bodySmall),
         const SizedBox(height: Space.l),
-        Flexible(
-          child: ListView(
-            shrinkWrap: true,
+        Column(
             children: [
               for (final m in marks)
                 Semantics(
@@ -90,7 +94,6 @@ class _BatchClipSheetState extends State<BatchClipSheet> {
                   ),
                 ),
             ],
-          ),
         ),
         const SizedBox(height: Space.l),
         SheetButton(
@@ -104,6 +107,7 @@ class _BatchClipSheetState extends State<BatchClipSheet> {
           Semantics(liveRegion: true, child: Text(_error!, style: text.bodyMedium!.copyWith(color: c.rec))),
         ],
       ],
+    ),
     );
   }
 }

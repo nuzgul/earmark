@@ -38,6 +38,7 @@ class _EarmarkAppState extends State<EarmarkApp> {
   Future<void> _start() async {
     await s.library.load();
     if ((await s.engine.recover()).isNotEmpty) await s.library.load();
+    await s.pro.startup();
   }
 
   void _onSaved() {

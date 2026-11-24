@@ -41,14 +41,28 @@ object Adts {
 
     data class Format(val sampleRate: Int, val channels: Int)
 
+    /** What [readFrames] got through: [format] is null when there was no frame; [bytes] counts whole frames only. */
+    data class Scan(val format: Format?, val frames: Long, val bytes: Long)
+
+    /** Largest AAC-LC frame: 6144 bits per channel, plus the header. */
+    fun maxFrameBytes(channels: Int) = HEADER + 768 * channels
+
+    /**
+     * True when [scan] read all of a [length]-byte stream but a torn last frame (a crash mid-write).
+     * Anything more was cut off by damage, and the part file must be kept.
+     */
+    fun readAll(scan: Scan, length: Long) = length - scan.bytes < maxFrameBytes(scan.format?.channels ?: 1)
+
     /**
      * Streams whole frames from [input] to [onFrame] (payload only, header stripped) and stops at
-     * the first damaged or truncated frame. Returns the stream format, or null if it holds no frame.
+     * the first damaged or truncated frame.
      */
-    fun readFrames(input: InputStream, onFrame: (Format, ByteArray) -> Unit): Format? {
+    fun readFrames(input: InputStream, onFrame: (Format, ByteArray) -> Unit): Scan {
         val data = DataInputStream(input)
         val h = ByteArray(HEADER)
         var format: Format? = null
+        var frames = 0L
+        var bytes = 0L
         while (true) {
             try {
                 data.readFully(h)
@@ -63,11 +77,13 @@ object Adts {
                 data.readFully(payload)
                 val f = format ?: Format(rateAt((b2 shr 2) and 0xF), ((b2 and 1) shl 2) or (b3 shr 6)).also { format = it }
                 onFrame(f, payload)
+                frames++
+                bytes += len // frame_length includes the header (and CRC)
             } catch (_: EOFException) {
                 break
             }
         }
-        return format
+        return Scan(format, frames, bytes)
     }
 
     fun framesToMs(frames: Long, sampleRate: Int): Long = frames * 1000 / sampleRate

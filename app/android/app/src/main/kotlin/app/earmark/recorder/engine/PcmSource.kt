@@ -45,12 +45,18 @@ class MicSource private constructor(private val r: AudioRecord) : PcmSource {
         @SuppressLint("MissingPermission") // checked by the caller before start()
         fun open(rate: Int): MicSource? {
             val min = AudioRecord.getMinBufferSize(rate, MONO, PCM16)
-            val r = try {
-                AudioRecord(MediaRecorder.AudioSource.MIC, rate, MONO, PCM16, maxOf(min * 4, rate)) // >= 0.5 s
-            } catch (_: Exception) {
-                return null
+            // ~4 s rides out a capture thread held up by storage; the old 0.5 s is the fallback
+            // for a phone that refuses a buffer that large.
+            for (bytes in intArrayOf(maxOf(min, rate * 2 * 4), maxOf(min * 4, rate))) {
+                val r = try {
+                    AudioRecord(MediaRecorder.AudioSource.MIC, rate, MONO, PCM16, bytes)
+                } catch (_: Exception) {
+                    continue
+                }
+                if (r.state == AudioRecord.STATE_INITIALIZED) return MicSource(r)
+                r.release()
             }
-            return if (r.state == AudioRecord.STATE_INITIALIZED) MicSource(r) else { r.release(); null }
+            return null
         }
     }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -31,7 +32,7 @@ class PlaybackScreen extends StatefulWidget {
 }
 
 class _PlaybackScreenState extends State<PlaybackScreen> {
-  late final Player player = widget.services.newPlayer();
+  late final Player player;
   LibraryStore get lib => widget.services.library;
   Uint8List _peaks = Uint8List(0);
 
@@ -48,9 +49,13 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
     await player.setSpeed(next);
   }
 
+  /// Set when the audio file cannot be opened (missing or damaged): said once, plainly.
+  bool _unplayable = false;
+
   @override
   void initState() {
     super.initState();
+    player = widget.services.newPlayer();
     _load();
   }
 
@@ -62,26 +67,47 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
     } on FileSystemException {
       // No waveform (old or damaged file): flat bars, everything else still works.
     }
-    _opening = player.open(r.audioPath);
+    _opening = player.open(r.audioPath).catchError((Object _) {
+      _unplayable = true;
+      if (mounted) setState(() {});
+    });
     await _opening;
-    if (widget.startAt != null) await _jump(widget.startAt!);
+    if (mounted && widget.startAt != null) await _jump(widget.startAt!);
   }
 
   @override
   void dispose() {
+    _scrubTimer?.cancel();
     player.dispose();
     super.dispose();
+  }
+
+  // Dragging across the waveform: at most one seek every 60 ms, and always the last position.
+  Timer? _scrubTimer;
+  int? _scrubTo;
+
+  void _scrub(int ms) {
+    _scrubTo = ms;
+    if (_scrubTimer != null) return;
+    _seek(ms);
+    _scrubTimer = Timer(const Duration(milliseconds: 60), () {
+      _scrubTimer = null;
+      if (_scrubTo != null && _scrubTo != ms) _scrub(_scrubTo!);
+    });
   }
 
   int get _preRoll => lib.preRollMs;
 
   Future<void> _seek(int ms) async {
     await _opening;
+    if (_unplayable || !mounted) return;
     await player.seek(ms);
   }
 
   Future<void> _play() async {
     await _opening;
+    if (!mounted) return;
+    if (_unplayable) return _say("This recording can't be played: its audio file is missing or damaged.");
     await player.play();
   }
 
@@ -108,7 +134,7 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
   }
 
   Future<void> _addMark(Recording r) async {
-    final m = await lib.addMark(r.id, player.positionMs.value);
+    final m = await lib.addMark(r.id, player.currentMs());
     if (!mounted) return;
     SemanticsService.sendAnnouncement(View.of(context), '${m.name} added at ${spokenTime(m.posMs)}', TextDirection.ltr);
     _say('${m.name} added at ${clock(m.posMs)}');
@@ -126,6 +152,7 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
     }
     if (a == 'delete') {
       await lib.deleteMark(r.id, m.id);
+      if (!mounted) return;
       _say('${m.name} deleted', action: SnackBarAction(label: 'Undo', onPressed: () => lib.undoDeleteMark(r.id, m.id)));
     }
   }
@@ -176,7 +203,14 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
       listenable: lib,
       builder: (context, _) {
         final r = lib.byId(widget.recordingId);
-        if (r == null) return const Scaffold();
+        if (r == null) {
+          // Deleted or purged elsewhere while open: stop and leave instead of a blank page.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            player.pause();
+            if (mounted && Navigator.canPop(context)) Navigator.pop(context);
+          });
+          return const Scaffold();
+        }
         final marks = r.userMarks;
         return Scaffold(
           body: SafeArea(
@@ -216,7 +250,7 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
                               durationMs: r.durationMs,
                               positionMs: pos,
                               marks: r.marks,
-                              onSeek: _seek,
+                              onSeek: _scrub,
                               onFlag: _jump,
                             ),
                             const SizedBox(height: Space.s),

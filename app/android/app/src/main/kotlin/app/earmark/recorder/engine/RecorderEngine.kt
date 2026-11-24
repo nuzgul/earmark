@@ -10,6 +10,7 @@ import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.Process
 import android.os.StatFs
 import android.os.SystemClock
@@ -22,6 +23,7 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.math.log10
@@ -38,10 +40,10 @@ object RecorderEngine {
     private const val TAG = "Earmark"
     const val BITRATE = 96_000
     private const val CHUNK = 1024 // frames per read, ~21 ms at 48 kHz
-    private const val MIN_START_BYTES = 100L shl 20
-    private const val STOP_BYTES = 50L shl 20
     private const val HEARTBEAT_MS = 250L
     private const val STALL_MS = 1000L
+    private const val SYNC_MS = 5_000L
+    private const val WAKE_MS = 24 * 3600 * 1000L // only bounds a leak; stop() releases it
 
     interface Listener {
         fun onSnapshot(s: EngineSnapshot) {}
@@ -53,6 +55,12 @@ object RecorderEngine {
     private val main = Handler(Looper.getMainLooper())
     private val listeners = CopyOnWriteArraySet<Listener>()
     private val worker = Executors.newSingleThreadExecutor()
+    /** fsyncs the part off the capture thread: a slow flush must never hold up AudioRecord reads. */
+    private val syncer = Executors.newSingleThreadExecutor()
+    /** Tile and notification marks: in tap order, with their fsync off the main thread. */
+    private val marker = Executors.newSingleThreadExecutor()
+    /** Serializes recover() calls without holding the engine lock that start() needs. */
+    private val recovering = Any()
 
     @Volatile private var session: Session? = null
 
@@ -67,10 +75,15 @@ object RecorderEngine {
     fun removeListener(l: Listener) = listeners.remove(l)
 
     val isActive get() = session != null
+    /** The live session's id, null when idle. */
+    val liveId: String? get() = session?.id
     val root: File get() = File(app.filesDir, "recordings").apply { mkdirs() }
     private fun freeBytes(): Long = StatFs(root.path).availableBytes
 
-    private class Session(val id: String, val folder: File, val rate: Int, @Volatile var source: PcmSource, val codec: MediaCodec) {
+    private class Session(
+        val id: String, val folder: File, val rate: Int, @Volatile var source: PcmSource, val codec: MediaCodec,
+        val wake: PowerManager.WakeLock,
+    ) {
         val part = FileOutputStream(File(folder, Finalizer.PART))
         val journal = Journal(File(folder, Finalizer.MARKS))
         val peaks = BufferedOutputStream(FileOutputStream(File(folder, Finalizer.PEAKS)))
@@ -82,14 +95,16 @@ object RecorderEngine {
         @Volatile var stopRequested = false
         @Volatile var level = 0.0
         @Volatile var markCount = 0L
+        @Volatile var lastAdvanceAt = 0L
+        @Volatile var syncing: Future<*>? = null
         var stopReason: String? = null
         var queued = 0L
         var lastFrames = -1L
-        var lastAdvanceAt = 0L
         val done = CompletableFuture<SavedRecording?>()
         lateinit var thread: Thread
 
         fun close() {
+            runCatching { syncing?.get() } // an in-flight fsync finishes before its fd closes
             runCatching { source.release() }
             runCatching { codec.stop() }
             runCatching { codec.release() }
@@ -107,11 +122,14 @@ object RecorderEngine {
         return EngineSnapshot(s.state, s.id, Adts.framesToMs(s.frames, s.rate), level, s.markCount, s.interruption, freeBytes())
     }
 
-    /** Starts capture. The caller has the microphone permission. State stays STARTING until frames arrive. */
+    /**
+     * Starts capture. The caller has the microphone permission. State stays STARTING until frames
+     * arrive. Blocking (opens the mic and the encoder, writes files): call off the main thread.
+     */
     @Synchronized
     fun start(): EngineSnapshot {
         if (session != null) return snapshot()
-        if (freeBytes() < MIN_START_BYTES) {
+        if (freeBytes() < Space.MIN_START) {
             throw FlutterError("low_storage", "Not enough free space to record. Free up at least 100 MB and try again.")
         }
         val busy = FlutterError("mic_busy", "The microphone isn't available right now. Close other apps that use it and try again.")
@@ -132,12 +150,35 @@ object RecorderEngine {
             throw FlutterError("encoder", "This phone's audio encoder could not start.", e.message)
         }
         val id = UUID.randomUUID().toString()
-        val folder = File(root, id).apply { mkdirs() }
-        Meta(id, System.currentTimeMillis(), rate, 1, BITRATE, "recording").write(folder)
-        val s = Session(id, folder, rate, source, codec)
-        session = s
-        audioManager().registerAudioRecordingCallback(recordingCallback, main)
-        s.thread = thread(name = "earmark-capture") { capture(s) }
+        val folder = File(root, id)
+        var started: Session? = null
+        try {
+            folder.mkdirs()
+            Meta(id, System.currentTimeMillis(), rate, 1, BITRATE, "recording").write(folder)
+            val wake = app.getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Earmark:recording")
+            wake.setReferenceCounted(false)
+            val s = Session(id, folder, rate, source, codec, wake)
+            started = s
+            wake.acquire(WAKE_MS) // capture goes on with the screen off; released in stop()
+            session = s
+            audioManager().registerAudioRecordingCallback(recordingCallback, main)
+            s.thread = thread(name = "earmark-capture") { capture(s) }
+        } catch (e: Exception) {
+            // Nothing records: hand back the mic and the encoder so the next Record tap can have them.
+            session = null
+            runCatching { audioManager().unregisterAudioRecordingCallback(recordingCallback) }
+            val s = started
+            if (s != null) {
+                runCatching { s.wake.release() }
+                runCatching { s.close() }
+            } else {
+                runCatching { source.release() }
+                runCatching { codec.stop() }
+                runCatching { codec.release() }
+            }
+            folder.deleteRecursively() // holds no audio and no marks yet
+            throw FlutterError("storage", "Recording couldn't start: the recording file could not be created.", e.message)
+        }
         main.removeCallbacks(tick)
         main.post(tick)
         return snapshot()
@@ -174,13 +215,25 @@ object RecorderEngine {
         val result = synchronized(s) {
             if (s.stopRequested) throw FlutterError("not_recording", "The recording is being saved.")
             val e = JournalEntry(UUID.randomUUID().toString(), s.frames, s.rate, System.currentTimeMillis(), source)
-            s.journal.append(e)
+            s.journal.write(e) // under the lock: lines stay in frame order
             s.markCount++
             MarkResult(e.id, e.positionMs, s.markCount)
         }
+        // fsync outside the lock, so Pause and the capture thread never wait on the disk. Stop syncs
+        // the journal before closing it, so a mark racing Stop is durable either way.
+        s.journal.sync()
         main.post { listeners.forEach { it.onMark(result) } }
         emit(snapshot())
         return result
+    }
+
+    /** Tile and notification: marks in tap order, the fsync off the main thread. [done] runs on the main thread. */
+    fun markInBackground(source: String, done: (MarkResult) -> Unit = {}) {
+        marker.execute {
+            runCatching { mark(source) }
+                .onSuccess { r -> main.post { done(r) } }
+                .onFailure { Log.w(TAG, "$source mark failed", it) }
+        }
     }
 
     /**
@@ -208,7 +261,9 @@ object RecorderEngine {
             // The part file stays on disk; recover() finishes it on the next launch.
             Log.e(TAG, "finalize failed", e)
         } finally {
-            main.post { audioManager().unregisterAudioRecordingCallback(recordingCallback) }
+            // Synchronously: a posted unregister could run after the next start() registered again.
+            runCatching { audioManager().unregisterAudioRecordingCallback(recordingCallback) }
+            runCatching { s.wake.release() }
             session = null
             s.done.complete(saved)
             emit(snapshot())
@@ -217,9 +272,14 @@ object RecorderEngine {
         return saved
     }
 
-    /** Finalizes sessions a crash left behind. Blocking: call off the main thread. */
-    @Synchronized
-    fun recover(): List<SavedRecording> = Finalizer.recoverAll(root, session?.id)
+    /**
+     * Finalizes sessions a crash left behind. Blocking: call off the main thread. The engine lock is
+     * held only to list the folders; a long remux under it would block start() on the main thread.
+     */
+    fun recover(): List<SavedRecording> = synchronized(recovering) {
+        val folders = synchronized(this) { Finalizer.pending(root, session?.id) }
+        Finalizer.recoverAll(folders)
+    }
 
     private fun emit(s: EngineSnapshot) {
         main.post { listeners.forEach { it.onSnapshot(s) } }
@@ -241,8 +301,13 @@ object RecorderEngine {
                 s.lastFrames = s.frames
                 s.lastAdvanceAt = now
             } else if (s.state == SessionState.RECORDING && now - s.lastAdvanceAt > STALL_MS) {
-                s.state = SessionState.INTERRUPTED
-                s.interruption = "mic_lost"
+                synchronized(s) {
+                    // Re-checked under the lock: Pause or Stop may have changed the state meanwhile.
+                    if (s.state == SessionState.RECORDING && !s.stopRequested) {
+                        s.state = SessionState.INTERRUPTED
+                        s.interruption = "mic_lost"
+                    }
+                }
             }
             emit(snapshot(resetLevel = true))
             main.postDelayed(this, HEARTBEAT_MS)
@@ -261,7 +326,10 @@ object RecorderEngine {
                 if (s.stopRequested) return
                 s.silenced = mine.isClientSilenced
                 if (s.silenced) {
-                    s.journal.append(JournalEntry(UUID.randomUUID().toString(), s.frames, s.rate, System.currentTimeMillis(), "system", "system", "call"))
+                    // A full disk must not crash the app from a system callback; the interruption still shows.
+                    runCatching {
+                        s.journal.append(JournalEntry(UUID.randomUUID().toString(), s.frames, s.rate, System.currentTimeMillis(), "system", "system", "call"))
+                    }.onFailure { Log.w(TAG, "call mark not saved", it) }
                     if (s.state == SessionState.RECORDING || s.state == SessionState.STARTING) setState(s, SessionState.INTERRUPTED, "call")
                 } else if (s.state == SessionState.INTERRUPTED && s.interruption == "call") {
                     setState(s, SessionState.RECORDING, null)
@@ -303,19 +371,22 @@ object RecorderEngine {
                 s.frames += n // single writer: this thread
                 val db = if (chunkPeak == 0) -90.0 else 20 * log10(chunkPeak / 32768.0)
                 s.level = maxOf(s.level, ((db + 60) / 60).coerceIn(0.0, 1.0))
-                if (s.state == SessionState.STARTING || (s.state == SessionState.INTERRUPTED && s.interruption == "mic_lost")) {
-                    setState(s, SessionState.RECORDING, null)
-                }
+                if (waitingForFrames(s)) toRecording(s)
 
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastSync > 5_000) {
-                    s.part.fd.sync()
-                    s.peaks.flush() // a recovered recording keeps its waveform too
+                if (now - lastSync > SYNC_MS) {
                     lastSync = now
+                    s.peaks.flush() // a recovered recording keeps its waveform too
+                    // The fsync runs on its own thread: on a busy disk it can outlast AudioRecord's
+                    // buffer, and this thread must keep reading meanwhile. One in flight at a time.
+                    if (s.syncing?.isDone != false) {
+                        s.syncing = syncer.submit { runCatching { s.part.fd.sync() }.onFailure { Log.w(TAG, "part fsync failed", it) } }
+                    }
                 }
                 if (now - lastStorage > 15_000) {
                     lastStorage = now
-                    if (freeBytes() < STOP_BYTES) worker.execute { stop("low_storage") }
+                    // Stop while finalize still has room for its copy of the part.
+                    if (Space.mustStop(freeBytes(), File(s.folder, Finalizer.PART).length())) worker.execute { stop("low_storage") }
                 }
             }
         } catch (e: Exception) {
@@ -327,14 +398,27 @@ object RecorderEngine {
         }
     }
 
+    private fun waitingForFrames(s: Session) =
+        s.state == SessionState.STARTING || (s.state == SessionState.INTERRUPTED && s.interruption == "mic_lost")
+
+    /** Frames arrive: show Recording, unless Pause, a call or Stop got in first (checked under the lock). */
+    private fun toRecording(s: Session) = synchronized(s) {
+        if (waitingForFrames(s) && !s.stopRequested && !s.wantPaused && !s.silenced) setState(s, SessionState.RECORDING, null)
+    }
+
     private fun micLost(s: Session) {
-        if (!s.wantPaused && s.state != SessionState.INTERRUPTED) setState(s, SessionState.INTERRUPTED, "mic_lost")
+        synchronized(s) {
+            if (!s.stopRequested && !s.wantPaused && s.state != SessionState.INTERRUPTED) setState(s, SessionState.INTERRUPTED, "mic_lost")
+        }
         runCatching { s.source.release() }
         while (!s.stopRequested) {
             SystemClock.sleep(500)
             val again = MicSource.open(s.rate) ?: continue
-            s.source = again
-            if (again.start()) return
+            if (again.start()) {
+                s.source = again
+                return
+            }
+            runCatching { again.release() } // a failed start still holds an AudioRecord
         }
     }
 

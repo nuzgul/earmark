@@ -43,6 +43,7 @@ class _PressableScaleState extends State<PressableScale> {
     final duration = Motion.of(context, Motion.pressIn);
     return Semantics(
       button: true,
+      enabled: widget.onTap != null || widget.onPressDown != null,
       label: widget.semanticLabel,
       onTap: widget.onTap ?? widget.onPressDown,
       child: GestureDetector(

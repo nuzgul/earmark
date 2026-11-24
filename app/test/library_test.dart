@@ -85,7 +85,7 @@ void main() {
   });
 
   test('search finds marks by label, number and time, then recordings by title', () async {
-    writeRecording(tmp.path, 'a', at: now, marksMs: [272000, 30000]);
+    writeRecording(tmp.path, 'a', at: now, durationMs: 300000, marksMs: [272000, 30000]);
     writeRecording(tmp.path, 'b', at: now.subtract(const Duration(days: 2)));
     final s = LibraryStore(tmp.path, now: () => now);
     await s.load();

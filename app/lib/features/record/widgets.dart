@@ -194,8 +194,26 @@ class _BookmarkZoneState extends State<BookmarkZone> {
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(BookmarkZone old) {
+    super.didUpdateWidget(old);
+    if (!widget.enabled && _pointer != null) {
+      // Disabled mid-touch: the Listener goes away and its pointer-up with it.
+      _holdTimer?.cancel();
+      _pointer = null;
+      _arcAt = null;
+      _hover = null;
+    }
+  }
+
   void _down(PointerDownEvent e) {
-    if (!widget.enabled || _pointer != null) return;
+    if (!widget.enabled) return;
+    if (_pointer != null) {
+      // Another finger: mark too (only the first one can open the label arc).
+      HapticFeedback.mediumImpact();
+      widget.onMark();
+      return;
+    }
     _pointer = e.pointer;
     HapticFeedback.mediumImpact(); // same frame as the visual change
     setState(() => _finger = e.localPosition);
@@ -297,7 +315,7 @@ class _BookmarkZoneState extends State<BookmarkZone> {
         ),
       ),
     );
-    if (!on) return Semantics(label: 'Bookmark, unavailable', child: ExcludeSemantics(child: face));
+    if (!on) return Semantics(button: true, enabled: false, label: 'Bookmark, unavailable', child: ExcludeSemantics(child: face));
     final pressed = _pointer != null;
     return Semantics(
       button: true,

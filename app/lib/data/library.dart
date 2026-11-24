@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 
@@ -69,9 +70,9 @@ String longDate(DateTime t) => '${t.day} ${_months[t.month - 1]} ${t.year}';
 
 /// Library groups, newest first.
 String dayGroup(DateTime t, DateTime now) {
-  final day = DateTime(t.year, t.month, t.day);
-  final today = DateTime(now.year, now.month, now.day);
-  final diff = today.difference(day).inDays;
+  final day = DateTime.utc(t.year, t.month, t.day);
+  final today = DateTime.utc(now.year, now.month, now.day);
+  final diff = today.difference(day).inDays; // UTC dates: a DST day is still one day
   if (diff <= 0) return 'Today';
   if (diff == 1) return 'Yesterday';
   if (diff < 7) return 'This week';
@@ -97,7 +98,8 @@ String dayGroup(DateTime t, DateTime now) {
 /// "Pitch rehearsal — Mark 3 (04-18 to 04-38).m4a"
 String clipFileName(Recording r, Mark m, int startMs, int endMs) {
   String t(int ms) => clock(ms).replaceAll(':', '-');
-  return '${r.title} — ${m.name} (${t(startMs)} to ${t(endMs)}).m4a';
+  String cap(String s, int n) => s.runes.length <= n ? s : '${String.fromCharCodes(s.runes.take(n - 1))}…';
+  return '${cap(r.title, 60)} — ${cap(m.name, 40)} (${t(startMs)} to ${t(endMs)}).m4a';
 }
 
 class SearchResults {
@@ -148,34 +150,45 @@ class LibraryStore extends ChangeNotifier {
   List<Recording> get recentlyDeleted => _all.where((r) => r.deletedAt != null).toList();
   Recording? byId(String id) => _all.where((r) => r.id == id).firstOrNull;
 
+  /// Folders saved while a load was scanning; re-read once it ends so none is lost.
+  Set<String>? _upsertedDuringLoad;
+
+  /// Reads every recording on a background isolate (thousands of folders must not stall the
+  /// first frame), purging Recently deleted ones past 30 days.
   Future<void> load() async {
-    final dir = root == null ? null : Directory(root!);
-    final found = <Recording>[];
-    if (dir != null && dir.existsSync()) {
-      for (final d in dir.listSync().whereType<Directory>()) {
-        final r = _read(d.path);
-        if (r == null) continue;
-        if (r.deletedAt != null && _now().difference(r.deletedAt!) > keepDeleted) {
-          d.deleteSync(recursive: true); // the 30 days in Recently deleted are over
-          continue;
-        }
-        found.add(r);
+    final r = root;
+    if (r != null && Directory(r).existsSync()) {
+      _upsertedDuringLoad = {};
+      final now = _now().millisecondsSinceEpoch;
+      const keep = 30 * 24 * 3600 * 1000; // keepDeleted, as a constant the isolate can take
+      final found = await Isolate.run(() => _scan(r, now, keep));
+      final late = _upsertedDuringLoad!;
+      _upsertedDuringLoad = null;
+      final byId = {for (final x in found) x.id: x};
+      for (final f in late) {
+        final x = _read(f);
+        if (x != null) byId[x.id] = x;
       }
-      final st = _settings();
-      preRoll = st['pre_roll'] as bool? ?? true;
-      preRollSeconds = st['pre_roll_s'] as int? ?? 3;
-      calmMode = st['calm'] as bool? ?? true;
-      quickLabels = (st['quick_labels'] as List?)?.cast<String>() ?? defaultQuickLabels;
-      pro = st['pro'] as bool? ?? false;
+      _all = byId.values.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      _applySettings(_settings());
     }
-    found.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    _all = found;
     loaded = true;
     notifyListeners();
   }
 
+  void _applySettings(Map<String, dynamic> st) {
+    T? get<T>(String k) => st[k] is T ? st[k] as T : null;
+    preRoll = get<bool>('pre_roll') ?? true;
+    final s = get<num>('pre_roll_s')?.toInt();
+    preRollSeconds = preRollChoices.contains(s) ? s! : 3;
+    calmMode = get<bool>('calm') ?? true;
+    quickLabels = get<List<dynamic>>('quick_labels')?.whereType<String>().take(4).toList() ?? defaultQuickLabels;
+    pro = get<bool>('pro') ?? false;
+  }
+
   /// After the engine saves or recovers a recording.
   void upsert(String folder) {
+    _upsertedDuringLoad?.add(folder);
     final r = _read(folder);
     if (r == null) return;
     _all = [r, ..._all.where((e) => e.id != r.id)]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -201,11 +214,16 @@ class LibraryStore extends ChangeNotifier {
 
   Future<Mark> addMark(String id, int posMs) async {
     final r = byId(id)!;
-    final n = r.nextN;
-    final markId = 'u${_now().microsecondsSinceEpoch}';
-    await _edit(id, (e) => (e['added'] as List).add({'id': markId, 'pos_ms': posMs.clamp(0, r.durationMs), 'n': n}));
+    final markId = 'u${_now().microsecondsSinceEpoch}-${_seq++}';
+    await _edit(id, (e) {
+      // Numbered from the file as it is now, inside the queue: two quick adds get two numbers.
+      final n = _nextN(r.folder, e);
+      (e['added'] as List).add({'id': markId, 'pos_ms': posMs.clamp(0, r.durationMs), 'n': n});
+    });
     return byId(id)!.marks.firstWhere((m) => m.id == markId);
   }
+
+  int _seq = 0;
 
   Future<void> renameMark(String id, String markId, String label) => _edit(id, (e) {
         final t = label.trim();
@@ -230,6 +248,7 @@ class LibraryStore extends ChangeNotifier {
   Future<void> labelLiveMark(String recordingId, String markId, String label) async {
     if (root == null) return;
     await _write('$root/$recordingId', (e) => (e['labels'] as Map)[markId] = label);
+    if (byId(recordingId) != null) upsert('$root/$recordingId'); // saved meanwhile
   }
 
   /// Marks first (label, "Mark N" or time such as "04:32"), then recordings by title.
@@ -253,31 +272,17 @@ class LibraryStore extends ChangeNotifier {
     apply();
     notifyListeners();
     if (root == null) return;
-    final tmp = File('${_settingsFile().path}.tmp');
-    await tmp.writeAsString(jsonEncode({..._settings(), key: value}), flush: true);
-    await tmp.rename(_settingsFile().path);
+    final f = _settingsFile();
+    await _serial(f.path, () async {
+      // Before the first load the in-memory values are only defaults: change just this key.
+      final data = loaded
+          ? {..._settings(), 'pre_roll': preRoll, 'pre_roll_s': preRollSeconds, 'calm': calmMode, 'quick_labels': quickLabels, 'pro': pro}
+          : {..._settings(), key: value};
+      await _atomicWrite(f, jsonEncode(data));
+    });
   }
 
-  Map<String, dynamic> _settings() {
-    try {
-      return jsonDecode(_settingsFile().readAsStringSync()) as Map<String, dynamic>;
-    } catch (_) {
-      return {};
-    }
-  }
-
-  Map<String, dynamic> _edits(String folder) {
-    Map<String, dynamic> e;
-    try {
-      e = jsonDecode(File('$folder/library.json').readAsStringSync()) as Map<String, dynamic>;
-    } catch (_) {
-      e = {};
-    }
-    e['labels'] ??= <String, dynamic>{};
-    e['deleted'] ??= <dynamic>[];
-    e['added'] ??= <dynamic>[];
-    return e;
-  }
+  Map<String, dynamic> _settings() => _readJson(_settingsFile()) ?? {};
 
   Future<void> _edit(String id, void Function(Map<String, dynamic>) change) async {
     final r = byId(id);
@@ -286,19 +291,96 @@ class LibraryStore extends ChangeNotifier {
     upsert(r.folder);
   }
 
-  Future<void> _write(String folder, void Function(Map<String, dynamic>) change) async {
-    final e = _edits(folder);
-    change(e);
-    final tmp = File('$folder/library.json.tmp');
-    await tmp.writeAsString(jsonEncode(e), flush: true);
-    await tmp.rename('$folder/library.json'); // atomic: a crash never leaves half a file
+  /// One read-modify-write at a time per file, so quick successive edits never overwrite each other.
+  Future<void> _write(String folder, void Function(Map<String, dynamic>) change) {
+    final f = File('$folder/library.json');
+    return _serial(f.path, () async {
+      final e = _edits(folder);
+      change(e);
+      await _atomicWrite(f, jsonEncode(e));
+    });
   }
 
-  /// Null for folders that are not a finished recording (in progress, or audio missing).
-  Recording? _read(String folder) {
+  final _queues = <String, Future<void>>{};
+
+  Future<T> _serial<T>(String key, Future<T> Function() job) {
+    final run = (_queues[key] ?? Future<void>.value()).then((_) => job());
+    _queues[key] = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  static Future<void> _atomicWrite(File f, String text) async {
+    final tmp = File('${f.path}.tmp');
+    await tmp.writeAsString(text, flush: true);
+    await tmp.rename(f.path); // atomic: a crash never leaves half a file
+  }
+
+  int _nextN(String folder, Map<String, dynamic> e) => _read(folder)?.nextN ?? 1;
+
+  Recording? _read(String folder) => _readRecording(folder);
+}
+
+/// Background-isolate scan for [LibraryStore.load].
+List<Recording> _scan(String root, int nowMs, int keepMs) {
+  final out = <Recording>[];
+  for (final d in Directory(root).listSync().whereType<Directory>()) {
+    try {
+      final r = _readRecording(d.path);
+      if (r == null) continue;
+      if (r.deletedAt != null && nowMs - r.deletedAt!.millisecondsSinceEpoch > keepMs) {
+        d.deleteSync(recursive: true); // the 30 days in Recently deleted are over
+        continue;
+      }
+      out.add(r);
+    } catch (_) {
+      // One unreadable or undeletable folder must not hide the others.
+    }
+  }
+  return out;
+}
+
+/// A JSON object from [f]; null when missing. A damaged file is kept aside (".damaged") and
+/// what can be saved is used: a stray tail after the last complete object is dropped.
+Map<String, dynamic>? _readJson(File f) {
+  final String text;
+  try {
+    text = f.readAsStringSync();
+  } on FileSystemException {
+    return null;
+  }
+  try {
+    return jsonDecode(text) as Map<String, dynamic>;
+  } catch (_) {
+    try {
+      final copy = File('${f.path}.damaged');
+      if (!copy.existsSync()) f.copySync(copy.path);
+    } catch (_) {}
+    for (var i = text.lastIndexOf('}'); i > 0 && i > text.length - 512; i = text.lastIndexOf('}', i - 1)) {
+      try {
+        return jsonDecode(text.substring(0, i + 1)) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+    return null;
+  }
+}
+
+Map<String, dynamic> _edits(String folder) {
+  final e = _readJson(File('$folder/library.json')) ?? <String, dynamic>{};
+  if (e['labels'] is! Map) e['labels'] = <String, dynamic>{};
+  if (e['deleted'] is! List) e['deleted'] = <dynamic>[];
+  if (e['added'] is! List) e['added'] = <dynamic>[];
+  return e;
+}
+
+/// Null for folders that are not a finished recording (in progress, or audio missing).
+Recording? _readRecording(String folder) {
     try {
       if (!File('$folder/audio.m4a').existsSync()) return null;
       final meta = jsonDecode(File('$folder/meta.json').readAsStringSync()) as Map<String, dynamic>;
+      // Marks are journaled at once, audio every few seconds: after a power loss a mark can sit
+      // past the recovered audio. Show it at the end instead.
+      final durationMs = meta['duration_ms'] as int;
+      int fit(int ms) => durationMs > 0 && ms > durationMs ? durationMs : ms;
       final e = _edits(folder);
       final deleted = (e['deleted'] as List).toSet();
       final labels = e['labels'] as Map;
@@ -318,7 +400,7 @@ class LibraryStore extends ChangeNotifier {
         if (deleted.contains(id)) continue;
         marks.add(Mark(
           id: id,
-          posMs: (j['pos_frames'] as int) * 1000 ~/ (j['sample_rate'] as int),
+          posMs: fit((j['pos_frames'] as int) * 1000 ~/ (j['sample_rate'] as int)),
           n: system ? 0 : n,
           label: labels[id] as String?,
           system: system,
@@ -336,7 +418,7 @@ class LibraryStore extends ChangeNotifier {
         id: meta['id'] as String,
         folder: folder,
         createdAt: DateTime.fromMillisecondsSinceEpoch(meta['created_at'] as int),
-        durationMs: meta['duration_ms'] as int,
+        durationMs: durationMs,
         marks: marks,
         customTitle: e['title'] as String?,
         recovered: meta['status'] == 'recovered',
@@ -347,4 +429,3 @@ class LibraryStore extends ChangeNotifier {
       return null;
     }
   }
-}

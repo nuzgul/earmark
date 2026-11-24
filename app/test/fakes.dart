@@ -82,6 +82,9 @@ class FakePlayer implements Player {
   double speed = 1;
 
   @override
+  int currentMs() => _pos.value;
+
+  @override
   Future<void> setSpeed(double s) async => speed = s;
 
   @override

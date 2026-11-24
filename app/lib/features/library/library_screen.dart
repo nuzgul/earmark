@@ -42,7 +42,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _delete(Recording r) async {
-    await lib.delete(r.id);
+    try {
+      await lib.delete(r.id);
+    } finally {
+      // The library hides it from now on; keeping it here would also hide it after a Restore.
+      _hidden.remove(r.id);
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -292,7 +297,9 @@ class _MarkHit extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final m = hit.mark;
     final name = m.name;
-    final i = name.toLowerCase().indexOf(query.toLowerCase());
+    // Lower-casing can change the length ("İ"): then highlight nothing rather than mis-cut.
+    final lower = name.toLowerCase();
+    final i = lower.length == name.length ? lower.indexOf(query.toLowerCase()) : -1;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: Space.l, vertical: 2),
       child: PressableScale(

@@ -12,7 +12,8 @@ Future<T?> _sheet<T>(BuildContext context, Widget Function(BuildContext) build) 
     showDragHandle: true,
     backgroundColor: c.surface,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.large))),
-    builder: (ctx) => Padding(
+    // Scrolls when the content does not fit: large text, or landscape with the keyboard up.
+    builder: (ctx) => SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(Space.screen, 0, Space.screen, Space.xl + MediaQuery.viewInsetsOf(ctx).bottom),
       child: build(ctx),
     ),
@@ -35,7 +36,8 @@ class SheetButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final child = Container(
-      height: 56,
+      constraints: const BoxConstraints(minHeight: 56),
+      padding: const EdgeInsets.symmetric(horizontal: Space.l, vertical: Space.s),
       alignment: Alignment.center,
       decoration: BoxDecoration(color: fill ?? c.raised, borderRadius: BorderRadius.circular(100)),
       child: Text(label, style: Theme.of(context).textTheme.labelLarge!.copyWith(color: onTap == null ? c.text2 : (ink ?? c.text))),
@@ -48,7 +50,7 @@ class SheetButton extends StatelessWidget {
 /// Rename sheet; returns the new text, or null when dismissed.
 Future<String?> askText(BuildContext context, {required String title, required String initial, String hint = ''}) {
   final controller = TextEditingController(text: initial)..selection = TextSelection(baseOffset: 0, extentOffset: initial.length);
-  return _sheet<String>(context, (ctx) {
+  final done = _sheet<String>(context, (ctx) {
     final c = AppColors.of(ctx);
     final text = Theme.of(ctx).textTheme;
     return Column(
@@ -77,6 +79,7 @@ Future<String?> askText(BuildContext context, {required String title, required S
       ],
     );
   });
+  return done.whenComplete(controller.dispose);
 }
 
 /// Yes/no sheet for permanent actions; true only on an explicit tap of [action].

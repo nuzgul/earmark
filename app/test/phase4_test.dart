@@ -19,6 +19,9 @@ class FakeStore implements Store {
 
   final String? forSale;
   final _events = StreamController<StoreEvent>.broadcast();
+  bool refuseBuy = false;
+  @override
+  Future<void> Function()? onOwned;
   int buys = 0, restores = 0;
 
   void send(StoreEvent e) => _events.add(e);
@@ -26,7 +29,10 @@ class FakeStore implements Store {
   @override
   Future<String?> price() async => forSale;
   @override
-  Future<void> buy() async => buys++;
+  Future<void> buy() async {
+    buys++;
+    if (refuseBuy) throw StateError('purchase not started');
+  }
   @override
   Future<void> restore() async => restores++;
   @override
@@ -134,6 +140,35 @@ void main() {
       expect(lib.pro, isTrue); // kept across launches: see the settings test
     });
 
+    testWidgets('store refuses to open the purchase: the sheet is not stuck and points to Restore', (t) async {
+      _phone(t);
+      final store = FakeStore(forSale: '€5.99')..refuseBuy = true;
+      final pro = Pro(store: store, library: LibraryStore(null));
+      await t.pumpWidget(_host(ProSheet(pro: pro)));
+      await t.pump();
+      await t.tap(find.bySemanticsLabel('Buy Pro · €5.99'));
+      await t.pump();
+      expect(pro.busy, isFalse);
+      expect(find.textContaining('tap Restore purchase'), findsOneWidget);
+    });
+
+    testWidgets('restore tapped twice: one "nothing found" message, and an owned answer cancels it', (t) async {
+      _phone(t);
+      final store = FakeStore(forSale: '€5.99');
+      final pro = Pro(store: store, library: LibraryStore(null));
+      await t.pumpWidget(_host(ProSheet(pro: pro)));
+      await t.pump();
+      unawaited(pro.restore());
+      await t.pump(const Duration(seconds: 5));
+      unawaited(pro.restore());
+      await t.pump(const Duration(seconds: 4)); // 9 s after the first, 4 s after the second
+      expect(pro.message, isNull, reason: 'the first timer was replaced');
+      store.send(StoreEvent.owned);
+      await t.pump(const Duration(seconds: 10));
+      expect(pro.owned, isTrue);
+      expect(find.text('No Pro purchase found for this store account.'), findsNothing);
+    });
+
     testWidgets('restore with nothing to restore says so', (t) async {
       _phone(t);
       final store = FakeStore(forSale: '€5.99');
@@ -226,9 +261,10 @@ void main() {
       await g.moveTo(t.getCenter(find.text('Quote')));
       await t.pump();
       await g.up();
-      for (var i = 0; i < 10; i++) {
-        // The label file is real I/O: let it finish, then run its continuation.
-        await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
+      final labels = File('$root/rec-1/library.json');
+      for (var i = 0; i < 200 && !labels.existsSync(); i++) {
+        // The label file is real I/O: let it finish, then run its continuation (up to 6 s on a busy machine).
+        await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
         await t.pump();
       }
 
