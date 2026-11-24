@@ -7,6 +7,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.view.WindowManager
+import app.earmark.recorder.engine.AudioProbe
+import app.earmark.recorder.engine.AudioProbeResult
+import app.earmark.recorder.engine.ClipExporter
 import app.earmark.recorder.engine.EngineSnapshot
 import app.earmark.recorder.engine.FlutterError
 import app.earmark.recorder.engine.MarkResult
@@ -26,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 
 /** Bridges the Flutter UI to [RecorderEngine] and owns the microphone permission request. */
 class MainActivity : FlutterActivity(), RecorderEngine.Listener {
@@ -73,6 +78,8 @@ class MainActivity : FlutterActivity(), RecorderEngine.Listener {
         if (requestCode == PERMISSIONS) permissionAnswer?.complete(Unit)
     }
 
+    private fun debuggable() = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
     /** Asks on the first Record tap only; notifications are asked in the same dialog sequence. */
@@ -117,8 +124,30 @@ class MainActivity : FlutterActivity(), RecorderEngine.Listener {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
         }
 
+        override fun notificationsAllowed(): Boolean =
+            getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled()
+
+        override fun recordingsRoot(): String = RecorderEngine.root.absolutePath
+
+        override suspend fun exportClip(folder: String, startMs: Long, endMs: Long, fileName: String): String =
+            withContext(Dispatchers.IO) {
+                try {
+                    ClipExporter.export(File(folder), startMs, endMs, fileName, File(cacheDir, "clips")).absolutePath
+                } catch (e: Exception) {
+                    throw FlutterError("clip_failed", "The clip could not be made.", e.message)
+                }
+            }
+
+        override suspend fun probeAudio(path: String): AudioProbeResult {
+            if (!debuggable()) throw FlutterError("debug_only", "Not available in this build.")
+            return withContext(Dispatchers.IO) { AudioProbe.probe(path) }
+        }
+
         override fun useTestTone(on: Boolean) {
-            RecorderEngine.testTone = on && (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            RecorderEngine.testTone = on && debuggable()
+            // Test mode also keeps the screen on: a sleeping screen draws no frames and stalls the test.
+            if (RecorderEngine.testTone) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 

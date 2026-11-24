@@ -407,6 +407,52 @@ data class SavedRecording (
     return "SavedRecording(id=$id, folder=$folder, createdAtMs=$createdAtMs, durationMs=$durationMs, marks=$marks, recovered=$recovered, stopReason=$stopReason)"
   }
 }
+
+/**
+ * Debug-only facts about an audio file, for tests.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class AudioProbeResult (
+  val durationMs: Long,
+  /** Pitch from 0.1 s to 0.35 s (the test tone is 300 Hz + 20 Hz × second). */
+  val startHz: Double
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): AudioProbeResult {
+      val durationMs = pigeonVar_list[0] as Long
+      val startHz = pigeonVar_list[1] as Double
+      return AudioProbeResult(durationMs, startHz)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      durationMs,
+      startHz,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as AudioProbeResult
+    return EngineApiPigeonUtils.deepEquals(this.durationMs, other.durationMs) && EngineApiPigeonUtils.deepEquals(this.startHz, other.startHz)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.durationMs)
+    result = 31 * result + EngineApiPigeonUtils.deepHash(this.startHz)
+    return result
+  }
+  override fun toString(): String {
+    return "AudioProbeResult(durationMs=$durationMs, startHz=$startHz)"
+  }
+}
 private open class EngineApiPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -430,6 +476,11 @@ private open class EngineApiPigeonCodec : StandardMessageCodec() {
           SavedRecording.fromList(it)
         }
       }
+      133.toByte() -> {
+        (readValue(buffer) as? List<Any?>)?.let {
+          AudioProbeResult.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -449,6 +500,10 @@ private open class EngineApiPigeonCodec : StandardMessageCodec() {
       }
       is SavedRecording -> {
         stream.write(132)
+        writeValue(stream, value.toList())
+      }
+      is AudioProbeResult -> {
+        stream.write(133)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -474,8 +529,23 @@ interface RecorderHostApi {
   suspend fun recover(): List<SavedRecording>
   fun openAppSettings()
   /**
+   * False when the user turned notifications off: recording works, but the lock-screen
+   * Mark / Pause / Stop buttons are hidden. The UI explains this once.
+   */
+  fun notificationsAllowed(): Boolean
+  /** Folder holding one sub-folder per recording (meta.json, marks.jsonl, audio.m4a, peaks.bin). */
+  fun recordingsRoot(): String
+  /**
+   * Copies [startMs, endMs) of `folder/audio.m4a` into a new .m4a in the clip cache
+   * (no re-encode) and returns its path. The source file is only read.
+   */
+  suspend fun exportClip(folder: String, startMs: Long, endMs: Long, fileName: String): String
+  /** Debug builds only: duration and test-tone pitch of an audio file. */
+  suspend fun probeAudio(path: String): AudioProbeResult
+  /**
    * Debug builds only (ignored in release): record a clock-paced test tone instead of
    * the microphone, for integration tests on emulators whose mic clock is unreliable.
+   * Also keeps the screen on while the test runs.
    */
   fun useTestTone(on: Boolean)
 
@@ -611,6 +681,77 @@ interface RecorderHostApi {
               EngineApiPigeonUtils.wrapError(exception)
             }
             reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.notificationsAllowed$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.notificationsAllowed())
+            } catch (exception: Throwable) {
+              EngineApiPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.recordingsRoot$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.recordingsRoot())
+            } catch (exception: Throwable) {
+              EngineApiPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.exportClip$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val folderArg = args[0] as String
+            val startMsArg = args[1] as Long
+            val endMsArg = args[2] as Long
+            val fileNameArg = args[3] as String
+            CoroutineScope(Dispatchers.Main).launch {
+              val wrapped: List<Any?> = try {
+                listOf(api.exportClip(folderArg, startMsArg, endMsArg, fileNameArg))
+              } catch (exception: Throwable) {
+                EngineApiPigeonUtils.wrapError(exception)
+              }
+              reply.reply(wrapped)
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.earmark.RecorderHostApi.probeAudio$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val pathArg = args[0] as String
+            CoroutineScope(Dispatchers.Main).launch {
+              val wrapped: List<Any?> = try {
+                listOf(api.probeAudio(pathArg))
+              } catch (exception: Throwable) {
+                EngineApiPigeonUtils.wrapError(exception)
+              }
+              reply.reply(wrapped)
+            }
           }
         } else {
           channel.setMessageHandler(null)

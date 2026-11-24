@@ -336,6 +336,58 @@ class SavedRecording {
   }
 }
 
+/// Debug-only facts about an audio file, for tests.
+class AudioProbeResult {
+  AudioProbeResult({
+    required this.durationMs,
+    required this.startHz,
+  });
+
+  int durationMs;
+
+  /// Pitch from 0.1 s to 0.35 s (the test tone is 300 Hz + 20 Hz × second).
+  double startHz;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      durationMs,
+      startHz,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static AudioProbeResult decode(Object result) {
+    result as List<Object?>;
+    return AudioProbeResult(
+      durationMs: result[0]! as int,
+      startHz: result[1]! as double,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! AudioProbeResult || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(durationMs, other.durationMs) && _deepEquals(startHz, other.startHz);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'AudioProbeResult(durationMs: $durationMs, startHz: $startHz)';
+  }
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -356,6 +408,9 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is SavedRecording) {
       buffer.putUint8(132);
       writeValue(buffer, value.encode());
+    }    else if (value is AudioProbeResult) {
+      buffer.putUint8(133);
+      writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
     }
@@ -373,6 +428,8 @@ class _PigeonCodec extends StandardMessageCodec {
         return MarkResult.decode(readValue(buffer)!);
       case 132:
         return SavedRecording.decode(readValue(buffer)!);
+      case 133:
+        return AudioProbeResult.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -543,8 +600,87 @@ class RecorderHostApi {
     ;
   }
 
+  /// False when the user turned notifications off: recording works, but the lock-screen
+  /// Mark / Pause / Stop buttons are hidden. The UI explains this once.
+  Future<bool> notificationsAllowed() async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.notificationsAllowed$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: false,
+    )
+    ;
+    return pigeonVar_replyValue! as bool;
+  }
+
+  /// Folder holding one sub-folder per recording (meta.json, marks.jsonl, audio.m4a, peaks.bin).
+  Future<String> recordingsRoot() async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.recordingsRoot$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: false,
+    )
+    ;
+    return pigeonVar_replyValue! as String;
+  }
+
+  /// Copies [startMs, endMs) of `folder/audio.m4a` into a new .m4a in the clip cache
+  /// (no re-encode) and returns its path. The source file is only read.
+  Future<String> exportClip(String folder, int startMs, int endMs, String fileName) async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.exportClip$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[folder, startMs, endMs, fileName]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: false,
+    )
+    ;
+    return pigeonVar_replyValue! as String;
+  }
+
+  /// Debug builds only: duration and test-tone pitch of an audio file.
+  Future<AudioProbeResult> probeAudio(String path) async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.probeAudio$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[path]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: false,
+    )
+    ;
+    return pigeonVar_replyValue! as AudioProbeResult;
+  }
+
   /// Debug builds only (ignored in release): record a clock-paced test tone instead of
   /// the microphone, for integration tests on emulators whose mic clock is unreliable.
+  /// Also keeps the screen on while the test runs.
   Future<void> useTestTone(bool on) async {
     final pigeonVar_channelName = 'dev.flutter.pigeon.earmark.RecorderHostApi.useTestTone$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(

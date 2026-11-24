@@ -85,6 +85,16 @@ class SavedRecording {
   String? stopReason;
 }
 
+/// Debug-only facts about an audio file, for tests.
+class AudioProbeResult {
+  AudioProbeResult({required this.durationMs, required this.startHz});
+
+  int durationMs;
+
+  /// Pitch from 0.1 s to 0.35 s (the test tone is 300 Hz + 20 Hz × second).
+  double startHz;
+}
+
 @HostApi()
 abstract class RecorderHostApi {
   EngineSnapshot snapshot();
@@ -111,8 +121,25 @@ abstract class RecorderHostApi {
 
   void openAppSettings();
 
+  /// False when the user turned notifications off: recording works, but the lock-screen
+  /// Mark / Pause / Stop buttons are hidden. The UI explains this once.
+  bool notificationsAllowed();
+
+  /// Folder holding one sub-folder per recording (meta.json, marks.jsonl, audio.m4a, peaks.bin).
+  String recordingsRoot();
+
+  /// Copies [startMs, endMs) of `folder/audio.m4a` into a new .m4a in the clip cache
+  /// (no re-encode) and returns its path. The source file is only read.
+  @async
+  String exportClip(String folder, int startMs, int endMs, String fileName);
+
+  /// Debug builds only: duration and test-tone pitch of an audio file.
+  @async
+  AudioProbeResult probeAudio(String path);
+
   /// Debug builds only (ignored in release): record a clock-paced test tone instead of
   /// the microphone, for integration tests on emulators whose mic clock is unreliable.
+  /// Also keeps the screen on while the test runs.
   void useTestTone(bool on);
 }
 

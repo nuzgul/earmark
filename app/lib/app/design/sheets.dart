@@ -1,0 +1,136 @@
+import 'package:flutter/material.dart';
+
+import 'pressable_scale.dart';
+import 'tokens.dart';
+
+Future<T?> _sheet<T>(BuildContext context, Widget Function(BuildContext) build) {
+  final c = AppColors.of(context);
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: true,
+    backgroundColor: c.surface,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.large))),
+    builder: (ctx) => Padding(
+      padding: EdgeInsets.fromLTRB(Space.screen, 0, Space.screen, Space.xl + MediaQuery.viewInsetsOf(ctx).bottom),
+      child: build(ctx),
+    ),
+  );
+}
+
+/// Opens any sheet with the app's sheet styling.
+Future<T?> showAppSheet<T>(BuildContext context, Widget Function(BuildContext) build) => _sheet(context, build);
+
+/// Full-width pill button used in sheets.
+class SheetButton extends StatelessWidget {
+  const SheetButton({super.key, required this.label, required this.onTap, this.fill, this.ink});
+
+  final String label;
+  final VoidCallback? onTap;
+  final Color? fill;
+  final Color? ink;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final child = Container(
+      height: 56,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: fill ?? c.raised, borderRadius: BorderRadius.circular(100)),
+      child: Text(label, style: Theme.of(context).textTheme.labelLarge!.copyWith(color: onTap == null ? c.text2 : (ink ?? c.text))),
+    );
+    if (onTap == null) return Semantics(button: true, enabled: false, label: label, child: ExcludeSemantics(child: child));
+    return PressableScale(semanticLabel: label, onTap: onTap, child: child);
+  }
+}
+
+/// Rename sheet; returns the new text, or null when dismissed.
+Future<String?> askText(BuildContext context, {required String title, required String initial, String hint = ''}) {
+  final controller = TextEditingController(text: initial)..selection = TextSelection(baseOffset: 0, extentOffset: initial.length);
+  return _sheet<String>(context, (ctx) {
+    final c = AppColors.of(ctx);
+    final text = Theme.of(ctx).textTheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(title, style: text.titleMedium),
+        const SizedBox(height: Space.l),
+        TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 80,
+          textCapitalization: TextCapitalization.sentences,
+          style: text.bodyLarge,
+          decoration: InputDecoration(
+            hintText: hint,
+            filled: true,
+            fillColor: c.raised,
+            counterText: '',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(Radii.small), borderSide: BorderSide.none),
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        const SizedBox(height: Space.l),
+        SheetButton(label: 'Save', fill: c.text, ink: c.bg, onTap: () => Navigator.pop(ctx, controller.text)),
+      ],
+    );
+  });
+}
+
+/// Yes/no sheet for permanent actions; true only on an explicit tap of [action].
+Future<bool> confirm(BuildContext context, {required String title, required String message, required String action}) async {
+  final ok = await _sheet<bool>(context, (ctx) {
+    final c = AppColors.of(ctx);
+    final text = Theme.of(ctx).textTheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(title, style: text.titleMedium),
+        const SizedBox(height: Space.s),
+        Text(message, style: text.bodyLarge!.copyWith(color: c.text2)),
+        const SizedBox(height: Space.xl),
+        SheetButton(label: action, ink: c.rec, onTap: () => Navigator.pop(ctx, true)),
+        const SizedBox(height: Space.s),
+        SheetButton(label: 'Cancel', fill: c.surface, onTap: () => Navigator.pop(ctx, false)),
+      ],
+    );
+  });
+  return ok ?? false;
+}
+
+/// A short list of actions (row menus). Returns the chosen value.
+Future<T?> chooseAction<T>(BuildContext context, List<({String label, T value, bool danger})> actions) {
+  return _sheet<T>(context, (ctx) {
+    final c = AppColors.of(ctx);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final a in actions) ...[
+          SheetButton(label: a.label, ink: a.danger ? c.rec : null, onTap: () => Navigator.pop(ctx, a.value)),
+          const SizedBox(height: Space.s),
+        ],
+      ],
+    );
+  });
+}
+
+/// 48 dp round icon button (top bars, row menus).
+class IconTap extends StatelessWidget {
+  const IconTap({super.key, required this.icon, required this.label, required this.onTap, this.color});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) => PressableScale(
+        semanticLabel: label,
+        onTap: onTap,
+        child: SizedBox.square(dimension: kMinTarget, child: Icon(icon, color: color ?? AppColors.of(context).text)),
+      );
+}

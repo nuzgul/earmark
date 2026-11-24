@@ -16,8 +16,11 @@
 //   tool/integration_android.sh emulator-5554
 import 'dart:io';
 
+import 'package:earmark/app/services.dart';
+import 'package:earmark/data/library.dart';
 import 'package:earmark/engine/engine_api.g.dart';
 import 'package:earmark/engine/engine_client.dart';
+import 'package:earmark/features/playback/player.dart';
 import 'package:earmark/main.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -49,13 +52,16 @@ Future<int> _waitForPosition(WidgetTester t, EngineClient e, int targetMs) async
   return since.elapsedMilliseconds;
 }
 
+Future<Services> _services(EngineClient engine) async =>
+    Services(engine: engine, library: LibraryStore(await engine.recordingsRoot()), newPlayer: JustAudioPlayer.new);
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('owner sequence: 10 s, mark, pause 5 s, resume 10 s, mark, stop', (t) async {
     final engine = EngineClient();
     await engine.useTestTone(true);
-    await t.pumpWidget(EarmarkApp(engine: engine));
+    await t.pumpWidget(EarmarkApp(services: await _services(engine)));
     await t.pump();
 
     await t.tap(find.bySemanticsLabel('Start recording'));
@@ -102,13 +108,13 @@ void main() {
     expect(File('${r.folder}/audio.m4a').existsSync(), isTrue);
     expect(File('${r.folder}/audio.aac.part').existsSync(), isFalse);
     expect(File('${r.folder}/marks.jsonl').readAsLinesSync(), hasLength(2));
-    expect(find.bySemanticsLabel(RegExp(r'^Saved recording, 00:20 · 2 marks$')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp(r"^Saved recording, 00:20 · 2 marks. Open$")), findsOneWidget);
   });
 
   testWidgets('five taps in one second make five marks', (t) async {
     final engine = EngineClient();
     await engine.useTestTone(true);
-    await t.pumpWidget(EarmarkApp(engine: engine));
+    await t.pumpWidget(EarmarkApp(services: await _services(engine)));
     await t.pump();
     await t.tap(find.bySemanticsLabel('Start recording'));
     await _until(t, () => engine.snapshot.value.state == SessionState.recording, 'recording');

@@ -28,6 +28,18 @@ Mark/Pause/Resume from the shade, Quick Settings tile marks, simulated answered 
 ("Paused: call", auto-resume, call marker in the journal), `kill -9` mid-recording → "Recovered"
 with all marks, install-over-a-running-recording → recovered.
 
+## Android — Phase 2 (library, playback, clips)
+
+| # | Check | How | Expected | Result |
+|---|---|---|---|---|
+| B1 | Real recording replay | Record 2 min speech with 3 marks; Library → open → tap each flag | Plays from 3 s before each mark; voice matches the moment | not run |
+| B2 | Share clip to a real app | Share clip → WhatsApp / Gmail / Drive | Receiver plays a 20 s .m4a named "… — Mark N (mm-ss to mm-ss).m4a" | not run |
+| B3 | Clip preview | Clip sheet → Preview | Plays exactly the selected range and stops | not run |
+| B4 | Handles by finger | Drag both clip handles | Follow the finger; readout updates; min 1 s | not run |
+| B5 | Long file | Open a 1-hour recording | Opens < 1 s; waveform and flags drawn; seeking smooth | not run |
+| B6 | Headphones / Bluetooth playback | Play through BT headphones; disconnect | Playback pauses on disconnect (no speaker blast) | not run |
+| B7 | Light and dark | Switch system theme | Both readable; marigold only on marks | not run |
+
 ## iOS — Phase 3
 Live Activity / Dynamic Island Mark, Control Center control, interruptions, VoiceOver, 1-hour
 recording. Filled in when the Swift engine exists.

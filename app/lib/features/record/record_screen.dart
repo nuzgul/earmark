@@ -6,26 +6,32 @@ import 'package:flutter/semantics.dart';
 import '../../app/design/pressable_scale.dart';
 import '../../app/design/tokens.dart';
 import '../../app/format.dart';
+import '../../app/services.dart';
 import '../../engine/engine_api.g.dart';
 import '../../engine/engine_client.dart';
+import '../library/library_screen.dart';
+import '../playback/playback_screen.dart';
 import 'widgets.dart';
 
 /// Home screen: idle (Record) and live (timer, marks, Bookmark zone). Everything shown
 /// comes from the engine's snapshot; nothing here assumes a state the engine did not report.
 class RecordScreen extends StatefulWidget {
-  const RecordScreen({super.key, required this.engine});
+  const RecordScreen({super.key, required this.services});
 
-  final EngineClient engine;
+  final Services services;
 
   @override
   State<RecordScreen> createState() => _RecordScreenState();
 }
 
 class _RecordScreenState extends State<RecordScreen> {
-  EngineClient get engine => widget.engine;
+  EngineClient get engine => widget.services.engine;
 
   /// Set when the microphone was refused; "permanent" means only Settings can fix it.
   String? _micDenied;
+
+  /// The "notifications are off" note is shown once per app session.
+  static bool _toldNotifications = false;
   bool _busy = false;
   String? _glowId;
   Timer? _glowTimer;
@@ -34,7 +40,6 @@ class _RecordScreenState extends State<RecordScreen> {
   void initState() {
     super.initState();
     engine.refresh();
-    engine.recover();
     engine.marks.addListener(_onMarks);
   }
 
@@ -73,12 +78,31 @@ class _RecordScreenState extends State<RecordScreen> {
       _micDenied = error?.code == 'mic_denied' ? (error!.details as String? ?? 'ask') : null;
     });
     if (error != null && error.code != 'mic_denied') _say(error.message ?? 'Recording could not start.');
+    if (error == null && !_toldNotifications && !await engine.notificationsAllowed() && mounted) {
+      _toldNotifications = true;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        duration: const Duration(seconds: 8),
+        content: const Text("Notifications are off, so Mark, Pause and Stop won't show on the lock screen. Recording works."),
+        action: SnackBarAction(label: 'Settings', onPressed: engine.openAppSettings),
+      ));
+    }
   }
 
   Future<void> _stop() async {
     final saved = await engine.stop();
     if (!mounted) return;
     if (saved == null) _say("Couldn't finish saving. Earmark will complete it the next time it opens.");
+  }
+
+  void _openLibrary() => Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => LibraryScreen(services: widget.services),
+      ));
+
+  void _openRecording(String id) {
+    if (widget.services.library.byId(id) == null) return _openLibrary();
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => PlaybackScreen(services: widget.services, recordingId: id),
+    ));
   }
 
   Future<void> _mark() async {
@@ -103,11 +127,40 @@ class _RecordScreenState extends State<RecordScreen> {
   Widget _idle(EngineSnapshot s) {
     final c = AppColors.of(context);
     final text = Theme.of(context).textTheme;
+    // Fills the screen, and scrolls instead of overflowing when it can't (landscape, big text).
+    return LayoutBuilder(
+      builder: (context, box) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: box.maxHeight),
+          child: IntrinsicHeight(child: _idleColumn(s, c, text)),
+        ),
+      ),
+    );
+  }
+
+  Widget _idleColumn(EngineSnapshot s, AppColors c, TextTheme text) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(Space.screen, Space.xxxl, Space.screen, Space.xxl),
+      padding: const EdgeInsets.fromLTRB(Space.screen, Space.s, Space.screen, Space.xxl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Transform.translate(
+            offset: const Offset(-Space.m, 0),
+            child: PressableScale(
+              semanticLabel: 'Library',
+              onTap: _openLibrary,
+              child: Container(
+                height: kMinTarget,
+                padding: const EdgeInsets.symmetric(horizontal: Space.m),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.format_list_bulleted_rounded, color: c.text, size: 22),
+                  const SizedBox(width: Space.s),
+                  Text('Library', style: text.labelLarge),
+                ]),
+              ),
+            ),
+          ),
+          const SizedBox(height: Space.xl),
           // The 76 sp timer shrinks to fit instead of wrapping at big text sizes.
           FittedBox(
             fit: BoxFit.scaleDown,
@@ -122,7 +175,8 @@ class _RecordScreenState extends State<RecordScreen> {
           const SizedBox(height: Space.xl),
           ValueListenableBuilder(
             valueListenable: engine.lastSaved,
-            builder: (context, r, _) => r == null ? const SizedBox.shrink() : _SavedStrip(recording: r),
+            builder: (context, r, _) =>
+                r == null ? const SizedBox.shrink() : _SavedStrip(recording: r, onTap: () => _openRecording(r.id)),
           ),
           if (_micDenied != null) ...[
             const SizedBox(height: Space.m),
@@ -277,9 +331,10 @@ class _RecordScreenState extends State<RecordScreen> {
 }
 
 class _SavedStrip extends StatelessWidget {
-  const _SavedStrip({required this.recording});
+  const _SavedStrip({required this.recording, required this.onTap});
 
   final SavedRecording recording;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -288,8 +343,9 @@ class _SavedStrip extends StatelessWidget {
     final n = recording.marks.length;
     final what = recording.recovered ? 'Recovered' : 'Saved';
     final detail = '${clock(recording.durationMs)} · $n ${n == 1 ? 'mark' : 'marks'}';
-    return Semantics(
-      label: '$what recording, $detail',
+    return PressableScale(
+      semanticLabel: '$what recording, $detail. Open',
+      onTap: onTap,
       child: ExcludeSemantics(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: Space.l, vertical: Space.m),
@@ -301,6 +357,7 @@ class _SavedStrip extends StatelessWidget {
               Text(what, style: text.labelLarge),
               const SizedBox(width: Space.s),
               Expanded(child: Text(detail, style: text.bodyLarge!.copyWith(color: c.text2))),
+              Icon(Icons.chevron_right_rounded, color: c.text2),
             ],
           ),
         ),

@@ -1,5 +1,9 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- No INTERNET permission: audio never leaves the phone except through the user's own share. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- No INTERNET permission: audio never leaves the phone except through the user's own share.
+         (The debug build alone gets INTERNET from src/debug for Flutter's hot reload.) -->
+    <!-- The player library (media3) asks for this; Earmark plays local files only. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />

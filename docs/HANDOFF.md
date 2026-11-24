@@ -1,24 +1,28 @@
 # Handoff — Earmark (voice recorder with bookmarks)
 
-## State (2026-11-23)
+## State (2026-11-24)
 - Planning: `docs/PLAN.md`, `docs/ui-premium/PLAN.md`, `docs/design-board.html`, `docs/brand/`.
 - Decisions D1–D6 taken with the recommended defaults (Earmark, Codemagic/GitHub macOS for iOS, Pro 5.99 USD one-time, transcription later, iOS backups included, iOS 17.0).
 - **Phase 0 done**: Flutter 3.47.7 project, ids `app.earmark.recorder`, tokens/theme/Mona Sans, icon, Pigeon contract, CI.
-- **Phase 1 done (Android engine + Record screen)**:
-  - Engine (`app/android/app/src/main/kotlin/app/earmark/recorder/engine/`): `RecorderEngine` (AudioRecord 48 kHz mono → MediaCodec AAC-LC 96 kbps → ADTS `audio.aac.part`, frame counter, heartbeat 250 ms, stall watchdog, call silencing via `AudioRecordingCallback`, mic-loss reopen, storage checks), `Journal` (`marks.jsonl`, fsync per mark; `meta.json`), `Finalizer` (ADTS → `audio.m4a` with MediaMuxer, verify, recovery), `Adts`, `PcmSource` (mic + debug-only clock-paced test tone), `RecorderService` (foreground service type microphone; notification with Mark/Pause/Stop always visible), `MarkTileService` (Quick Settings tile).
-  - Pause keeps the mic open and drops samples (instant resume, no background mic restart).
-  - Bridge: `app/pigeons/engine_api.dart` → start/pause/resume/stop/mark/recover/openAppSettings/useTestTone; events onSnapshot/onMark/onSaved. `mark()` runs on a background task queue.
-  - UI (`app/lib/features/record/`): idle (space left, Saved/Recovered strip, microphone-refused card), live (state pill, timer from frames, level line, rolling mark count, last two marks with 2 s marigold outline, Pause/Resume, Stop, Bookmark zone marking on touch-down with haptic), landscape layout, "Checking microphone…" after 1.5 s without heartbeat.
-- Verified: `flutter analyze` clean; `flutter test` 10/10 (incl. 5 goldens); JVM engine tests 5/5; integration test (owner's sequence, 3 consecutive runs: marks 10.026/20.053, 10.026/20.010, 10.026/19.989 s; five rapid taps → five marks); emulator manual checks listed in `docs/DEVICE-CHECKS.md`.
-- Not verified: anything on a physical phone (`docs/DEVICE-CHECKS.md` A1–A12); iOS never compiled (no Mac); CI never ran (no GitHub remote).
+- **Phase 1 done (Android engine + Record screen)**: `app/android/app/src/main/kotlin/app/earmark/recorder/engine/` — `RecorderEngine` (AudioRecord → AAC → crash-safe ADTS part, frame-counted marks, heartbeat, stall watchdog, call silencing, mic-loss reopen, storage guards), `Journal`, `Finalizer` (→ `audio.m4a`, recovery), `PcmSource` (mic + debug-only test tone), `RecorderService` (notification Mark/Pause/Stop), `MarkTileService`. Record screen in `app/lib/features/record/`.
+- **Phase 2 done (Library, Playback, Clip on Android)**:
+  - Data: `app/lib/data/library.dart` — no database (deviation from the plan, recorded in `docs/PLAN.md` §5.6). Each recording folder holds the engine's `meta.json` + `marks.jsonl` (never edited) and the user's edits in `library.json` (title, mark labels, added/deleted marks, trash date; atomic write). In-memory search over titles, mark names and times ("04:32"). Mark numbers never shift after deletes. Recently deleted: 30 days, then purged on load. Pre-roll setting in `files/settings.json`.
+  - Screens: `features/library/` (groups Today/Yesterday/This week/Older, search with "Matching marks" first, swipe or ⋯ to delete with Undo, rename, Recently deleted with Restore / Delete now + confirmation), `features/playback/` (waveform from `peaks.bin` with numbered ribbon flags, seek, transport prev/next mark ±10 s, "Start 3 s before a mark", + Mark at the playhead, rename/delete marks with Undo, delete recording → Recently deleted), Clip sheet (14 s before + 6 s after, handles + ±1 s nudges, exact Preview, Share).
+  - Engine: `ClipExporter` (MediaExtractor + MediaMuxer, no re-encode, cache/clips, 24 h cleanup), `AudioProbe` (debug-only, for tests). Bridge adds `recordingsRoot`, `exportClip`, `probeAudio`.
+  - Player: `just_audio` behind a small `Player` interface (fake in widget tests); pauses when headphones disconnect. Sharing via `share_plus`. Theme now follows the system (light + dark).
+  - Release APK permissions: RECORD_AUDIO, FOREGROUND_SERVICE(_MICROPHONE), POST_NOTIFICATIONS only — media3's ACCESS_NETWORK_STATE is removed; no INTERNET.
+- Verified (2026-11-24): `flutter analyze` clean; `flutter test` 31/31 (library rules, screens, 12 goldens dark/light/200 %); JVM 5/5; integration on `Shared_API35`: clip test passed twice (clip 20.010 s, start pitch 400.0 Hz = expected second, source bytes unchanged, flag jump with 3 s pre-roll); owner sequence passed (10.005 / 20.010 s) on the same code before the last fixes; release APK permissions checked with aapt2; manual emulator run of Library → Playback → Clip sheet → system share sheet.
+- **Pending (start here):** re-run `tool/integration_android.sh emulator-5554` once on a quiet machine. The last three fixes (Playback waits for the file to open before seeking — a flag tapped right after opening was lost; the clip test's bracketed jump check; test mode keeps the screen on) passed analyze and widget tests but not an emulator run: the shared emulator was shut down from outside three times and the host was at 100 % CPU, which also produced two timing outliers (mark 2 at +266 ms and +3.7 s) that a clean run did not show.
+- Not verified: anything on a physical phone (`docs/DEVICE-CHECKS.md` A1–A12, B1–B7); iOS never compiled (no Mac); CI never ran (no GitHub remote).
 
 ## When the owner says "proceed"
-Phase 2 — Library + Playback + Clip on Android (`docs/PLAN.md` §6, §5.5, §5.6, §12):
-1. drift DB + FTS5; import `recordings/<id>/meta.json` + `marks.jsonl` (saved and recovered) on launch and on `onSaved`.
-2. Library screen (search titles and marks, groups by day, rename, Recently deleted 30 days).
-3. Playback (just_audio): waveform from `peaks.bin`, ribbon flags, transport, "Start 3 s before a mark", add/rename/delete marks + Undo.
-4. Clip sheet + lossless export (MediaExtractor + MediaMuxer, window 14 s before / 6 s after), share via FileProvider; tests on clip content using the test tone (pitch = 300 Hz + 20 Hz × second) and source SHA-256 unchanged.
-5. Settings sheet incl. notification-permission explanation; run device checks A1–A12 on a phone.
+Phase 3 — iOS parity (`docs/PLAN.md` §5, §11 R1–R3, §12). Needs a Mac or the macOS CI job (push to GitHub first):
+1. Add `swiftOut` to `app/pigeons/engine_api.dart`; Swift engine in `ios/Runner/Engine/` (AVAudioRecorder AAC/CAF or AVAudioEngine + ExtAudioFile after the day-1 spike), same folder layout (`meta.json`, `marks.jsonl`, `peaks.bin`, `audio.m4a`) so the Dart library works unchanged.
+2. Interruptions (`AVAudioSession` interruption/route change/media reset), finalize + recovery, clip export (`AVAssetExportSession` passthrough).
+3. Live Activity + Dynamic Island Mark (LiveActivityIntent), iOS 18 Control widget, App Group.
+4. Info.plist: `NSMicrophoneUsageDescription`, `UIBackgroundModes: audio`, `NSSupportsLiveActivities`, privacy manifest.
+5. Same integration tests on the iOS simulator; device checks on an iPhone.
+Meanwhile on Android: run device checks A1–A12 and B1–B7 on a phone.
 
 ## Commands
 PowerShell, from `app/`:
@@ -27,5 +31,5 @@ PowerShell, from `app/`:
 - Regenerate the bridge after editing the contract: `dart run pigeon --input pigeons/engine_api.dart`
 - Engine JVM tests: `cd android; .\gradlew :app:testDebugUnitTest`
 
-Git Bash, from `app/` (emulator running, e.g. `Marketing_API35`; the script re-grants the mic after each reinstall):
-- `tool/integration_android.sh emulator-5554`
+Git Bash, from `app/` (emulator running, e.g. `Shared_API35`; the script re-grants the mic after each reinstall):
+- `tool/integration_android.sh emulator-5554` (all integration tests) · `TARGET=integration_test/clip_test.dart tool/integration_android.sh emulator-5554` (one file)

@@ -166,7 +166,10 @@ Default quality: AAC-LC mono 48 kHz, 96 kbps ≈ 43 MB/hour. Settings: Speech (6
 - File name: `Pitch rehearsal — Mark 3 (04-18 to 04-38).m4a`.
 - **Window rule**: default `[t − 14 s, t + 6 s]`; if `start < 0`, shift right; if `end > duration`, shift left; if the recording is shorter than 20 s, use the whole recording. Minimum clip 1 s; maximum 10 min (free and Pro).
 
-### 5.6 Data model (drift / SQLite)
+### 5.6 Data model
+
+> **Built differently in Phase 2 (2026-11-24):** no database. Each recording folder is self-contained: the engine's `meta.json` + `marks.jsonl` stay as written, and the user's edits (title, mark labels, added/deleted marks, trash date) live next to them in `library.json` (atomic write). The library loads all folders and searches in memory, which covers thousands of recordings in milliseconds with no codegen or native SQLite. Revisit SQLite + FTS5 only if a real library makes load or search slow. The schema below is kept as the reference for what is stored.
+
 ```
 recordings(id TEXT PK, title, created_at, duration_ms, sample_rate, codec, bytes,
            status[saved|recovered|deleted], deleted_at NULL, folder)

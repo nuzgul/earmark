@@ -2,12 +2,16 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:earmark/app/design/theme.dart';
+import 'package:earmark/app/services.dart';
+import 'package:earmark/data/library.dart';
 import 'package:earmark/engine/engine_api.g.dart';
 import 'package:earmark/engine/engine_client.dart';
 import 'package:earmark/features/record/record_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'fakes.dart';
 
 EngineSnapshot _snap(SessionState state, {int ms = 0, int marks = 0, String? why}) => EngineSnapshot(
       state: state,
@@ -77,7 +81,7 @@ Widget _app(EngineClient engine, {double textScale = 1, Size size = const Size(3
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: buildTheme(Brightness.dark),
-        home: RecordScreen(engine: engine),
+        home: RecordScreen(services: Services(engine: engine, library: LibraryStore(null), newPlayer: FakePlayer.new)),
       ),
     );
 
@@ -157,7 +161,7 @@ void main() {
 
     await tester.tap(find.bySemanticsLabel('Stop and save'));
     await tester.pumpAndSettle();
-    expect(find.bySemanticsLabel('Saved recording, 00:20 · 2 marks'), findsOneWidget);
+    expect(find.bySemanticsLabel('Saved recording, 00:20 · 2 marks. Open'), findsOneWidget);
     engine.dispose();
   });
 

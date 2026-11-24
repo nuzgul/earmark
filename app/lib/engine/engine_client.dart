@@ -91,6 +91,36 @@ class EngineClient implements RecorderEvents {
 
   Future<void> openAppSettings() => _api.openAppSettings();
 
+  /// False only when the engine says notifications are off (the lock-screen buttons are hidden).
+  Future<bool> notificationsAllowed() async {
+    try {
+      return await _api.notificationsAllowed();
+    } on PlatformException {
+      return true;
+    } on MissingPluginException {
+      return true;
+    }
+  }
+
+  /// Where recordings live; null when this platform has no engine yet (iOS before Phase 3).
+  Future<String?> recordingsRoot() async {
+    try {
+      return await _api.recordingsRoot();
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  /// Lossless clip of [folder]'s audio; returns the new file's path. Throws PlatformException.
+  Future<String> exportClip(String folder, int startMs, int endMs, String fileName) =>
+      _api.exportClip(folder, startMs, endMs, fileName);
+
+  /// Integration tests only (debug builds): duration and test-tone pitch of a file.
+  @visibleForTesting
+  Future<AudioProbeResult> probeAudio(String path) => _api.probeAudio(path);
+
   /// Integration tests only; the engine ignores it in release builds.
   @visibleForTesting
   Future<void> useTestTone(bool on) => _api.useTestTone(on);
