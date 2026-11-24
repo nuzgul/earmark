@@ -24,7 +24,8 @@ done
 FREE_K=$(a shell df -k /data | tail -1 | awk '{print $4}')
 FILL_M=$(( FREE_K / 1024 - 40 ))
 echo "free ${FREE_K} KB; filling ${FILL_M} MB to leave ~40 MB"
-a shell dd if=/dev/zero of=/data/local/tmp/fill bs=1048576 count=$FILL_M 2>&1 | tail -1
+a shell fallocate -l ${FILL_M}m /data/local/tmp/fill || a shell dd if=/dev/zero of=/data/local/tmp/fill bs=1048576 count=$FILL_M 2>&1 | tail -1
+echo "after fill: $(a shell df -k /data | tail -1)"
 wait $FT
 STATUS=$?
 grep -E "RESULT|All tests|Some tests|Expected|Actual|reason" "$OUT/disk-flutter.txt"

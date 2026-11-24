@@ -30,7 +30,7 @@ void main() {
     File('${Directory(services.library.root!).parent.path}/disk_ready.txt').writeAsStringSync('${engine.snapshot.value.recordingId}');
     // The host now fills the disk; the engine checks free space every 15 s.
     while (engine.lastSaved.value == null) {
-      if (sw.elapsed > const Duration(seconds: 120)) fail('the engine never stopped for low storage');
+      if (sw.elapsed > const Duration(seconds: 240)) fail('the engine never stopped for low storage');
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
     final r = engine.lastSaved.value!;

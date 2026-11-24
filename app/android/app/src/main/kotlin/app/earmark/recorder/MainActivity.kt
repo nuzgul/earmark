@@ -38,6 +38,20 @@ class MainActivity : FlutterActivity(), RecorderEngine.Listener {
     private var events: RecorderEvents? = null
     private var permissionAnswer: CompletableDeferred<Unit>? = null
 
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        // Debug builds log any disk or network work on the main thread, and leaked closeables
+        // (tag StrictMode); checked during the integration tests. Release builds are unaffected.
+        if (debuggable()) {
+            android.os.StrictMode.setThreadPolicy(
+                android.os.StrictMode.ThreadPolicy.Builder().detectDiskReads().detectDiskWrites().detectNetwork().penaltyLog().build(),
+            )
+            android.os.StrictMode.setVmPolicy(
+                android.os.StrictMode.VmPolicy.Builder().detectLeakedClosableObjects().detectLeakedRegistrationObjects().penaltyLog().build(),
+            )
+        }
+        super.onCreate(savedInstanceState)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         RecorderEngine.init(this)

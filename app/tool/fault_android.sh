@@ -19,6 +19,12 @@ mkdir -p "$OUT"
 a() { "$ADB" -s "$D" "$@"; }
 clean() { tr -d '\r'; }
 
+# The real app (lib/main.dart, which recovers at start): installed over the test build after the
+# kill, as a user would reopen Earmark. Same debug signing, so the recording files stay.
+echo "== building the real app"
+flutter build apk --debug > "$OUT/fault-build.txt" 2>&1 || { echo "FAIL: build"; exit 1; }
+cp build/app/outputs/flutter-apk/app-debug.apk "$OUT/app-main.apk"
+
 (while true; do a shell pm grant $PKG android.permission.RECORD_AUDIO 2>/dev/null && a shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null; sleep 1; done) &
 GRANTER=$!
 a shell input keyevent KEYCODE_WAKEUP
@@ -63,8 +69,22 @@ kill $FT 2>/dev/null
 echo "== killed pid $PID; files left:"
 a shell run-as $PKG ls -l files/recordings/"$ID" | sed 's/^/  /'
 
+if [ "${DAMAGE:-0}" = 1 ]; then
+  # Power-loss style damage: meta.json gone, and 2 KB of zeros mid-file (covers at least one
+  # ADTS header, so the scan stops there). Recovery must rebuild meta and keep the unread rest.
+  echo "== damaging: meta.json removed, 2 KB zeroed at byte 100000"
+  a shell run-as $PKG rm files/recordings/"$ID"/meta.json
+  a shell run-as $PKG dd if=/dev/zero of=files/recordings/"$ID"/audio.aac.part bs=1 seek=100000 count=2048 conv=notrunc 2>/dev/null
+fi
+
+echo "== installing the real app over the test build and reopening it"
+a install -r "$OUT/app-main.apk" >/dev/null
 a shell am start -W -n $PKG/.MainActivity >/dev/null
-sleep 8 # recovery runs at start
+for i in $(seq 1 30); do # recovery runs at start
+  a shell run-as $PKG ls files/recordings/"$ID"/audio.m4a >/dev/null 2>&1 && break
+  sleep 1
+done
+sleep 2
 META=$(a shell run-as $PKG cat files/recordings/"$ID"/meta.json | clean)
 MARKS=$(a shell run-as $PKG cat files/recordings/"$ID"/marks.jsonl | grep -c '"kind":"user"')
 FILES=$(a shell run-as $PKG ls files/recordings/"$ID" | clean | tr '\n' ' ')

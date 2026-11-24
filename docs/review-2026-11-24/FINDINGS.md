@@ -66,3 +66,18 @@ Device checks still to run: S24 integration + kill -9 recovery + Record during r
 - CI run 45427418539 (a0d18b3): android job green; the new android-integration job ran the tests on a 320×640 emulator and found two small-screen layout bugs (not engine bugs): Playback transport overflowed 16 px at 320 dp (clip test failed), and the live Record column scrolled Pause/Stop under the Bookmark zone (owner sequence could not tap Stop). Fixed after a0d18b3: transport buttons shrink to ≥ 48 dp; only the middle of the live column scrolls. Regression tests: "small 320 dp phone …" in `test/review_test.dart`. The clip test itself passed on that emulator (clip 20.010 s, pitch 400 Hz).
 - S24 (`tool/fault_android.sh R5CX92TT0VB`, test tone): five quick Record/Stop cycles → no crash-log entries; wake lock held while recording; `kill -9` at ~31.7 s → the part file held ~33 s of audio (406 KB), so nothing was lost at the kill. Not yet measured: recovery after relaunch (the script relaunched the test APK, whose entry point is the test, so the app's recovery never ran) and frame timing (`dumpsys gfxinfo` does not see Flutter's surface).
 - Next (when the owner says proceed): in `tool/fault_android.sh`, build `flutter build apk --debug` (real entry point) first and `adb install -r` it after the kill, then relaunch and read meta.json (target < 500 ms lost, mark kept); frame timing now uses `watchPerformance` in `integration_test/fault_test.dart` (debug numbers = upper bound). Emulator only: `tool/disk_android.sh emulator-5554` (low storage, E1) — written, not run yet. Then E3 damaged part / lost meta, then CI re-run.
+
+## Device checks finished on the emulator (2026-11-24, owner: "use emulator")
+Outside judges: fault scripts on the `Shared_API35` emulator, CI's emulator job, StrictMode, property tests.
+
+| Check | Result |
+|---|---|
+| kill -9 mid-recording → reopen the real app (`tool/fault_android.sh`) | **pass**: recovered automatically, 24 853 ms vs ~24 490 ms expected (nothing lost; +363 ms is encoder priming), mark kept, part replaced by audio.m4a, no crash, no ANR |
+| Damaged part + lost meta.json (`DAMAGE=1 tool/fault_android.sh`) | **pass**: meta rebuilt (status recovered), the 8.1 s before the damage saved as audio.m4a, the unreadable rest kept as `audio.aac.unread` (never deleted), mark kept, no crash |
+| Disk full, ~40 MB left (`tool/disk_android.sh`, emulator only) | **pass**: stopped by itself with stopReason `low_storage`, clean 15 s audio.m4a, no tmp copy, no part left |
+| Five quick Record/Stop cycles; wake lock | **pass**: no crash-log entries; `Earmark:recording` wake lock held while recording |
+| StrictMode (debug builds, integration tests) | **fixed**: snapshots read free space (StatFs) and ran mkdirs on the main thread 4×/s (100+ violations per run) → free space cached and refreshed off the main thread, folder created once → 0 violations from Earmark code; 1 remaining is Flutter's own engine start-up |
+| Owner sequence timing | CI emulator +5 / −11 ms; local emulator +48 / +32 and +90 / +10 ms (test limit ±100 ms passes; the ±50 ms stretch goal holds on CI, not on every run of the busy local emulator — the spread is tap delivery and timer jitter on the host, the engine stamps a mark on receipt) |
+| Property tests | Dart `test/property_test.dart` (20 000 clip windows; 400 randomly damaged folders; 150 random edits with double adds) and Kotlin `PropertyTest` (5 000 random byte streams; 2 000 cut streams; 1 000 mid-file damages; 500 journals with junk; 5 000 random clip names) — all pass |
+| Android Lint | no app defects; E13 fixed |
+| S24 (before "use emulator") | five cycles no crash; wake lock held; kill -9 lost no audio (part held ~33 s) |

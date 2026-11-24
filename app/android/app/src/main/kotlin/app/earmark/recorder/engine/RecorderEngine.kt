@@ -68,7 +68,9 @@ object RecorderEngine {
     @Volatile var testTone = false
 
     fun init(context: Context) {
-        if (!::app.isInitialized) app = context.applicationContext
+        if (::app.isInitialized) return
+        app = context.applicationContext
+        worker.execute { runCatching { measureFree() } } // the first snapshot already knows the space
     }
 
     fun addListener(l: Listener) = listeners.add(l)
@@ -77,8 +79,27 @@ object RecorderEngine {
     val isActive get() = session != null
     /** The live session's id, null when idle. */
     val liveId: String? get() = session?.id
-    val root: File get() = File(app.filesDir, "recordings").apply { mkdirs() }
-    private fun freeBytes(): Long = StatFs(root.path).availableBytes
+    /** Created once (mkdirs on every access was a main-thread disk call, StrictMode). */
+    val root: File by lazy { File(app.filesDir, "recordings").apply { mkdirs() } }
+
+    // Free space for snapshots (main thread, 4 per second) comes from a cache refreshed off the
+    // main thread; start() and the capture thread's 15 s check measure it fresh.
+    @Volatile private var freeCache = 0L
+    @Volatile private var freeAt = 0L
+
+    private fun measureFree(): Long = StatFs(root.path).availableBytes.also {
+        freeCache = it
+        freeAt = SystemClock.elapsedRealtime()
+    }
+
+    private fun freeBytes(fresh: Boolean = false): Long {
+        if (fresh) return measureFree()
+        if (SystemClock.elapsedRealtime() - freeAt > 5_000) {
+            freeAt = SystemClock.elapsedRealtime() // one refresh in flight at a time
+            worker.execute { runCatching { measureFree() } }
+        }
+        return freeCache
+    }
 
     private class Session(
         val id: String, val folder: File, val rate: Int, @Volatile var source: PcmSource, val codec: MediaCodec,
@@ -129,7 +150,7 @@ object RecorderEngine {
     @Synchronized
     fun start(): EngineSnapshot {
         if (session != null) return snapshot()
-        if (freeBytes() < Space.MIN_START) {
+        if (freeBytes(fresh = true) < Space.MIN_START) {
             throw FlutterError("low_storage", "Not enough free space to record. Free up at least 100 MB and try again.")
         }
         val busy = FlutterError("mic_busy", "The microphone isn't available right now. Close other apps that use it and try again.")
@@ -386,7 +407,7 @@ object RecorderEngine {
                 if (now - lastStorage > 15_000) {
                     lastStorage = now
                     // Stop while finalize still has room for its copy of the part.
-                    if (Space.mustStop(freeBytes(), File(s.folder, Finalizer.PART).length())) worker.execute { stop("low_storage") }
+                    if (Space.mustStop(freeBytes(fresh = true), File(s.folder, Finalizer.PART).length())) worker.execute { stop("low_storage") }
                 }
             }
         } catch (e: Exception) {
