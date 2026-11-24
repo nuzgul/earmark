@@ -3,6 +3,12 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+# macOS minutes are scarce on a private repo: a newer push cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -37,8 +43,11 @@ jobs:
           path: app/build/app/outputs/flutter-apk/app-debug.apk
 
   ios:
-    # Compile check only (no signing). The owner has no Mac; this is the iOS safety net.
+    # The owner has no Mac: this job is the iOS build and test machine. It compiles the app and the
+    # widget extension for the simulator, then runs the same integration tests as Android there
+    # (engine test tone, no microphone). Device-only checks: docs/DEVICE-CHECKS.md, part C.
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -46,5 +55,7 @@ jobs:
           flutter-version: '3.47.7'
           channel: stable
           cache: true
+      - run: xcodebuild -version
       - run: flutter pub get
-      - run: flutter build ios --debug --no-codesign
+      - run: flutter build ios --simulator --debug
+      - run: tool/integration_ios.sh

@@ -82,7 +82,9 @@ class _RecordScreenState extends State<RecordScreen> {
       _toldNotifications = true;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         duration: const Duration(seconds: 8),
-        content: const Text("Notifications are off, so Mark, Pause and Stop won't show on the lock screen. Recording works."),
+        content: Text(Theme.of(context).platform == TargetPlatform.iOS
+            ? "Live Activities are off for Earmark, so Mark, Pause and Stop won't show on the lock screen. Recording works."
+            : "Notifications are off, so Mark, Pause and Stop won't show on the lock screen. Recording works."),
         action: SnackBarAction(label: 'Settings', onPressed: engine.openAppSettings),
       ));
     }

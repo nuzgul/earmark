@@ -148,6 +148,8 @@ Default quality: AAC-LC mono 48 kHz, 96 kbps ≈ 43 MB/hour. Settings: Speech (6
 - **Stop** = finalize: Android remuxes ADTS → `.m4a` with `MediaMuxer`; iOS exports CAF → `.m4a` with an `AVAssetExportSession` passthrough. Verify the file is readable, then delete the `.part`/`.caf`, import into the database, show "Saved".
 - **Recovery on launch**: any folder with a `.part`/`.caf` and no live session → finalize what exists, import the marks, and show a "Recovered" banner on the recording.
 
+> **Built differently in Phase 3 (2026-11-24), iOS engine:** not `AVAudioRecorder` + CAF. `AVAudioEngine` input tap → 48 kHz mono → `AVAudioConverter` AAC-LC 96 kbps → the same ADTS `audio.aac.part` as Android, so a crash loses nothing that reached the file and one recovery path serves both platforms. Finalize and clip export use `AVAssetExportSession` passthrough (no re-encode). Marks add the time since the newest ~100 ms microphone buffer began, and Pause/Resume cut inside a buffer, keeping marks within a few ms. No App Group: the Live Activity gets its state through ActivityKit, and its buttons and the iOS 18 "Record or mark" control run as App Intents in the app process.
+
 ### 5.4 Interruptions and edge cases
 | Event | Android | iOS | User sees |
 |---|---|---|---|

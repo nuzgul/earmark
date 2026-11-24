@@ -1,6 +1,5 @@
 // Contract between the Flutter UI and the native recording engine.
 // Regenerate after editing:  dart run pigeon --input pigeons/engine_api.dart
-// iOS output (swiftOut) is added in Phase 3, when the Swift engine is built.
 import 'package:pigeon/pigeon.dart';
 
 @ConfigurePigeon(
@@ -9,6 +8,7 @@ import 'package:pigeon/pigeon.dart';
     kotlinOut:
         'android/app/src/main/kotlin/app/earmark/recorder/engine/EngineApi.g.kt',
     kotlinOptions: KotlinOptions(package: 'app.earmark.recorder.engine'),
+    swiftOut: 'ios/Runner/Engine/EngineApi.g.swift',
   ),
 )
 /// The engine's real state. The UI never shows "Recording" unless the engine says so.
