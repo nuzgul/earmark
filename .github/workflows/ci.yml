@@ -2,7 +2,9 @@ name: ci
 
 on:
   push:
+    paths-ignore: ['docs/**', '**.md']
   pull_request:
+    paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
 
 # macOS minutes are scarce on a private repo: a newer push cancels the older run.
