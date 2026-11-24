@@ -47,7 +47,7 @@ jobs:
     # widget extension for the simulator, then runs the same integration tests as Android there
     # (engine test tone, no microphone). Device-only checks: docs/DEVICE-CHECKS.md, part C.
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -58,4 +58,12 @@ jobs:
       - run: xcodebuild -version
       - run: flutter pub get
       - run: flutter build ios --simulator --debug
-      - run: tool/integration_ios.sh
+      - name: Integration tests on a simulator
+        run: tool/integration_ios.sh
+        timeout-minutes: 20
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-integration-logs
+          path: app/build/ci-logs/
+          if-no-files-found: ignore

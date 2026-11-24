@@ -43,6 +43,7 @@ void main() {
     await t.pumpWidget(EarmarkApp(services: services));
     await t.pump();
 
+    debugPrint('STEP start');
     await t.tap(find.bySemanticsLabel('Start recording'));
     await _until(t, () => engine.snapshot.value.positionMs >= 20000, '20 s recorded');
     await t.tap(find.bySemanticsLabel('Bookmark this moment'));
@@ -56,11 +57,13 @@ void main() {
     debugPrint('RESULT recording ${r.durationMs} ms, mark at ${mark.posMs} ms');
 
     // Open it from the Saved strip, then jump from the flag: 3 s of pre-roll before the mark.
+    debugPrint('STEP open playback');
     await t.tap(find.bySemanticsLabel(RegExp(r'^Saved recording, ')));
     await _settle(t);
     // Bracketed, so a slow host cannot fake a pass or a failure: the playhead must sit between
     // the pre-roll point and the pre-roll point plus the time that really passed.
     final sw = Stopwatch()..start();
+    debugPrint('STEP jump');
     await t.tap(find.bySemanticsLabel(RegExp('^Mark 1 at .*, jump\$')));
     await _until(t, () => find.bySemanticsLabel(RegExp(r'^Pause$')).evaluate().isNotEmpty, 'playing');
     await t.tap(find.bySemanticsLabel(RegExp(r'^Pause$')));
@@ -73,13 +76,16 @@ void main() {
     expect(headMs, inInclusiveRange(from ~/ 1000 * 1000, from + elapsed + 300), reason: 'jump lands 3 s before the mark');
 
     // The Clip sheet proposes 14 s before + 6 s after, kept inside the recording.
+    debugPrint('STEP clip sheet');
     await t.tap(find.bySemanticsLabel('Share clip of Mark 1'));
     await _settle(t);
     final w = clipWindow(mark.posMs, r.durationMs);
     expect(find.text('${clock(w.start)} → ${clock(w.end)} · ${((w.end - w.start) / 1000).toStringAsFixed(1)} s'), findsOneWidget);
 
     // Export exactly what Share would export (the system share sheet itself is outside the app).
+    debugPrint('STEP export');
     final clipPath = await engine.exportClip(r.folder, w.start, w.end, clipFileName(r, mark, w.start, w.end));
+    debugPrint('STEP probe');
     final clip = await engine.probeAudio(clipPath);
     final whole = await engine.probeAudio(r.audioPath);
     final expectedHz = 300 + 20 * ((w.start + 200) ~/ 1000);
@@ -90,7 +96,7 @@ void main() {
     expect((clip.startHz - expectedHz).abs(), lessThanOrEqualTo(8), reason: 'clip starts at the right second');
     expect((whole.startHz - 300).abs(), lessThanOrEqualTo(8), reason: 'probe sanity: the recording starts at 300 Hz');
     expect(listEquals(File(r.audioPath).readAsBytesSync(), source), isTrue, reason: 'source recording unchanged');
-  });
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }
 
 String clock(int ms) {
