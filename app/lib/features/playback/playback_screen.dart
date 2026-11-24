@@ -326,9 +326,12 @@ class _Transport extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    return LayoutBuilder(builder: (context, box) {
+    // 4 × 56 + 72 = 296 dp; a 320 dp phone has 280 after the margins.
+    final side = ((box.maxWidth - 72) / 4).clamp(kMinTarget, 56.0);
     Widget small(IconData icon, String label, VoidCallback? onTap) {
       final circle = SizedBox.square(
-        dimension: 56,
+        dimension: side,
         child: Icon(icon, size: 28, color: onTap == null ? c.border : c.text),
       );
       return onTap == null
@@ -358,6 +361,7 @@ class _Transport extends StatelessWidget {
         small(Icons.skip_next_rounded, 'Next mark', onNext),
       ],
     );
+    });
   }
 }
 

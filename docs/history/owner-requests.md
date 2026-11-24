@@ -10,3 +10,4 @@
 - 2026-11-24: "Yes, start Phase 4" → Pro purchase (in_app_purchase), Settings, calm screen, quick labels, batch clip share, playback speed, expensive/a11y audit. "try s24 is connected" → release build tested on the owner's Galaxy S24 FE.
 - 2026-11-24: "Wait for monthly reset" → CI stays paused until the GitHub Actions minutes renew; then re-run run 45377906690.
 - 2026-11-24: "forget the IOS for now and do like all other apps" + "remove earmark from private to public" → repo made public (history checked first), iOS CI job manual-only, pushes run Android CI.
+- 2026-11-24: "/be-ambitious review the app code … bug free, then /premium-ui and expensive-mode" → 3 reviews, 38/40 findings fixed with tests, CI emulator job, S24 fault checks (partly). "stop the test and close the emulator" → stopped; progress saved here.

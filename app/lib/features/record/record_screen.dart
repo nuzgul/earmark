@@ -354,12 +354,9 @@ class _RecordScreenState extends State<RecordScreen> {
     final recent = marks.reversed.take(2).toList();
     // Calm: everything but the timer, the mark count and the Bookmark zone steps back.
     Widget dim(Widget w) => AnimatedOpacity(opacity: _calm ? 0.35 : 1, duration: Motion.of(context, Motion.entrance), child: w);
-    // Fills the space, and scrolls instead of pushing Pause/Stop off a small screen.
-    return LayoutBuilder(
-      builder: (context, box) => SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: box.maxHeight),
-          child: IntrinsicHeight(child: Column(
+    // The state row and Pause/Stop always stay on screen; only the middle (timer, level, the last
+    // marks) scrolls when a small phone or large text leaves too little room.
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -381,6 +378,11 @@ class _RecordScreenState extends State<RecordScreen> {
           ],
         ),
         const SizedBox(height: Space.xl),
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
         Semantics(
           label: 'Recorded ${spokenTime(s.positionMs)}',
           child: ExcludeSemantics(
@@ -394,7 +396,6 @@ class _RecordScreenState extends State<RecordScreen> {
         const SizedBox(height: Space.m),
         dim(RepaintBoundary(child: LevelLine(level: capturing ? s.level : 0))),
         const SizedBox(height: Space.xl),
-        // Takes what is left, so large text never pushes the controls off screen.
         dim(Column(
           children: [
             for (final m in recent) ...[
@@ -403,7 +404,10 @@ class _RecordScreenState extends State<RecordScreen> {
             ],
           ],
         )),
-        const Spacer(),
+              ],
+            ),
+          ),
+        ),
         const SizedBox(height: Space.s),
         dim(Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -426,8 +430,6 @@ class _RecordScreenState extends State<RecordScreen> {
           ],
         )),
       ],
-    ))),
-      ),
     );
   }
 }

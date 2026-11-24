@@ -33,11 +33,13 @@
 - Not verified: anything on a physical phone (`docs/DEVICE-CHECKS.md` A1–A12, B1–B7, C1–C13): real microphone timing, calls, Bluetooth, lock-screen and Control Center marks, background recording. iOS device builds need an Apple Developer account (signing).
 
 ## When the owner says "proceed"
-Phases 0–4 are done. Next, in order:
-1. Phase 5 (store, `docs/PLAN.md` §12): Play Console app + internal testing track, App Store Connect + TestFlight (Apple Developer Program, 99 USD/year), product `earmark_pro` at the chosen price, listings, screenshots, privacy labels ("Data not collected"), Play foreground-service declaration with a short video. Then test a real Pro purchase on a test track.
-2. Device checks on real phones: Android A1–A12, B1–B7 (S24 available); iPhone C1–C13.
-3. Owner decisions from the audit: sheets that grow from their trigger (B1), deleted mark rows that slide out (B7).
-CI notes (2026-11-24, owner): the repo is **public** like the owner's other apps (free, unlimited Actions minutes) and **iOS is paused**: the macOS job runs only when started by hand (`gh workflow run ci` or the Actions tab). Every code push runs the Android job; docs-only pushes skip CI. Before going public the whole history was checked: no secrets, keys or emails; every commit is by "Earmark <noreply@example.com>". Earlier the private repo hit the account's Actions spending limit (shared with pdf-nova / pdf-nova-android, macOS minutes count 10×); the blocked run 45377906690 is superseded by the next push.
+Current work: owner request "review the app code … I want this app bug free, then /premium-ui expensive mode" (2026-11-24). Stopped by the owner during device checks.
+Done: three reviews → `docs/review-2026-11-24/FINDINGS.md` (40 findings, 38 fixed with tests, 2 deferred); `flutter analyze` clean, `flutter test` all green, engine JVM 15/15; S24 fault checks partly run (see FINDINGS, "Device and CI checks").
+Next, in order:
+1. Finish the device checks listed at the end of FINDINGS.md (fault script: install the real debug APK after the kill; emulator disk-full; damaged part / lost meta). Ask the owner before using the S24; the disk test runs on the emulator only.
+2. Push and check CI (android + android-integration on the 320×640 emulator).
+3. Premium-ui expensive-mode pass with before/after screenshots and clips from the S24 (`~/.claude/skills/premium-ui/references/expensive-mode.md`); earlier audit: `docs/ui-premium/AUDIT-expensive-2026-11-24.md` (open: B1 sheets from trigger, B7 row slide-out).
+Later: Phase 5 (store), iPhone checks C1–C13 (iOS CI is manual-only: `gh workflow run ci`).
 
 ## Commands
 PowerShell, from `app/`:
@@ -49,4 +51,4 @@ PowerShell, from `app/`:
 Git Bash on a Mac/CI, from `app/`: `tool/integration_ios.sh` (boots an iPhone simulator, runs each integration test file).
 
 Git Bash, from `app/` (emulator running, e.g. `Shared_API35`; the script re-grants the mic after each reinstall):
-- `tool/integration_android.sh emulator-5554` (all integration tests) · `TARGET=integration_test/clip_test.dart tool/integration_android.sh emulator-5554` (one file)
+- `tool/integration_android.sh emulator-5554` (all integration tests, one file at a time) · `tool/fault_android.sh <device>` (fault injection, test tone) · `tool/disk_android.sh emulator-5554` (low storage, emulator only) · `TARGET=integration_test/clip_test.dart tool/integration_android.sh emulator-5554` (one file)

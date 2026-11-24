@@ -272,6 +272,34 @@ void main() {
     expect(ns.toSet().length, ns.length, reason: 'numbers $ns');
   });
 
+  testWidgets('small 320 dp phone: Pause and Stop stay above the Bookmark area with two marks', (t) async {
+    _surface(t, const Size(320, 640));
+    final api = FakeHostApi();
+    final s = _services(api);
+    await t.pumpWidget(_app(RecordScreen(services: s), size: const Size(320, 640)));
+    await t.tap(find.bySemanticsLabel('Start recording'));
+    await t.pump();
+    await t.tap(find.bySemanticsLabel('Bookmark this moment'));
+    await t.pump();
+    await t.tap(find.bySemanticsLabel('Bookmark this moment'));
+    await t.pump(const Duration(seconds: 3));
+    final stop = t.getRect(find.bySemanticsLabel('Stop and save'));
+    final zone = t.getRect(find.bySemanticsLabel('Bookmark this moment'));
+    expect(stop.bottom, lessThanOrEqualTo(zone.top), reason: 'Stop $stop, zone $zone');
+    expect(t.takeException(), isNull);
+    await t.tap(find.bySemanticsLabel('Stop and save'));
+    await t.pumpAndSettle();
+    expect(api.state, SessionState.idle);
+  });
+
+  testWidgets('small 320 dp phone: the playback controls fit', (t) async {
+    _surface(t, const Size(320, 640));
+    await t.pumpWidget(_app(PlaybackScreen(services: _services(FakeHostApi()), recordingId: 'r1'), size: const Size(320, 640)));
+    await t.pump();
+    expect(t.takeException(), isNull);
+    expect(t.getSize(find.bySemanticsLabel('Next mark')).width, greaterThanOrEqualTo(48));
+  });
+
   group('data', () {
     test('two quick "+ Mark" adds get two numbers and both are kept', () async {
       final m = await Future.wait([_lib.addMark('r1', 15000), _lib.addMark('r1', 45000)]);
