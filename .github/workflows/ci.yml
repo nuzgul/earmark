@@ -44,6 +44,40 @@ jobs:
           name: earmark-debug-apk
           path: app/build/app/outputs/flutter-apk/app-debug.apk
 
+  android-integration:
+    # The real Kotlin engine on an emulator, through the real UI: the owner's timing sequence
+    # (10 s, mark, pause 5 s, resume 10 s, mark), five fast taps, and the lossless clip test.
+    # The engine records its debug-only test tone, so no microphone is needed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+      - name: Enable KVM
+        working-directory: .
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: flutter pub get
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none
+          working-directory: app
+          script: bash tool/integration_android.sh emulator-5554
+
   ios:
     # The owner has no Mac: this job is the iOS build and test machine. It compiles the app and the
     # widget extension for the simulator, then runs the same integration tests as Android there
