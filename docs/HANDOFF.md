@@ -37,7 +37,8 @@ Phases 0–4 are done. Next, in order:
 1. Phase 5 (store, `docs/PLAN.md` §12): Play Console app + internal testing track, App Store Connect + TestFlight (Apple Developer Program, 99 USD/year), product `earmark_pro` at the chosen price, listings, screenshots, privacy labels ("Data not collected"), Play foreground-service declaration with a short video. Then test a real Pro purchase on a test track.
 2. Device checks on real phones: Android A1–A12, B1–B7 (S24 available); iPhone C1–C13.
 3. Owner decisions from the audit: sheets that grow from their trigger (B1), deleted mark rows that slide out (B7).
-CI notes: every code push runs Android (Linux) and iOS (macOS, ~8 min). Docs-only pushes skip CI. A private repo has ~200 macOS minutes a month on the free plan; about 65 were used on 2026-11-24.
+CI notes: every code push runs Android (Linux) and iOS (macOS, ~8 min). Docs-only pushes skip CI.
+**CI blocked since 2026-11-24 10:46:** GitHub refuses to start jobs — "recent account payments have failed or your spending limit needs to be increased" (the account's Actions minutes are used up; macOS minutes count 10×). Run 45377906690 (53faa08) never started. 53faa08 changed only tests and docs; its app code is the same as dfdcac7, which passed on iOS. Its Android test command (`flutter test --exclude-tags golden`) passes locally (32/32). To unblock (owner): raise the spending limit in GitHub Billing, make the repo public (free minutes, code visible), wait for the monthly reset, or move iOS builds to Codemagic. Then re-run: `gh run rerun 45377906690`.
 
 ## Commands
 PowerShell, from `app/`:
