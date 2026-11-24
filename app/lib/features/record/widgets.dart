@@ -1,4 +1,9 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/design/pressable_scale.dart';
 import '../../app/design/tokens.dart';
@@ -86,12 +91,15 @@ class _LevelState extends State<_Level> {
       tween: Tween(end: widget.level.clamp(0, 1)),
       duration: Motion.of(context, Duration(milliseconds: rising ? 50 : 300)),
       curve: Curves.easeOut,
-      builder: (context, v, _) => FractionallySizedBox(
-        widthFactor: v,
-        child: DecoratedBox(
-          decoration: BoxDecoration(color: widget.color, borderRadius: BorderRadius.circular(2)),
-          child: const SizedBox(height: 4),
-        ),
+      // A transform, not a width: 20 updates a second for hours must not re-layout (expensive B8).
+      builder: (context, v, child) => Transform(
+        alignment: Alignment.centerLeft,
+        transform: Matrix4.diagonal3Values(v, 1, 1),
+        child: child,
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: widget.color, borderRadius: BorderRadius.circular(2)),
+        child: const SizedBox(height: 4, width: double.infinity),
       ),
     );
   }
@@ -152,56 +160,236 @@ class _RibbonPainter extends CustomPainter {
   bool shouldRepaint(_RibbonPainter old) => old.color != color;
 }
 
-/// The big marigold target. Marks on touch-down, not release.
-class BookmarkZone extends StatelessWidget {
-  const BookmarkZone({super.key, required this.onMark, required this.enabled});
+/// The big marigold target. Marks on touch-down (raw pointer, so no gesture-arena delay).
+/// With quick labels (Pro), holding it opens an arc of labels above the finger: slide to one and
+/// let go to label the mark that the touch-down already made, so the timing stays exact.
+class BookmarkZone extends StatefulWidget {
+  const BookmarkZone({super.key, required this.onMark, required this.enabled, this.labels = const [], this.onLabel});
 
-  final VoidCallback onMark;
+  final Future<MarkResult?> Function() onMark;
   final bool enabled;
+  final List<String> labels;
+  final void Function(MarkResult mark, String label)? onLabel;
+
+  static const hold = Duration(milliseconds: 450);
+
+  @override
+  State<BookmarkZone> createState() => _BookmarkZoneState();
+}
+
+class _BookmarkZoneState extends State<BookmarkZone> {
+  int? _pointer;
+  Offset _finger = Offset.zero;
+  Offset? _arcAt;
+  int? _hover;
+  Timer? _holdTimer;
+  Future<MarkResult?>? _pending;
+  Size _size = Size.zero;
+
+  List<String> get _labels => widget.labels.where((l) => l.isNotEmpty).take(4).toList();
+
+  @override
+  void dispose() {
+    _holdTimer?.cancel();
+    super.dispose();
+  }
+
+  void _down(PointerDownEvent e) {
+    if (!widget.enabled || _pointer != null) return;
+    _pointer = e.pointer;
+    HapticFeedback.mediumImpact(); // same frame as the visual change
+    setState(() => _finger = e.localPosition);
+    _pending = widget.onMark();
+    if (_labels.isEmpty) return;
+    _holdTimer = Timer(BookmarkZone.hold, () {
+      if (!mounted || _pointer == null) return;
+      HapticFeedback.selectionClick();
+      setState(() => _arcAt = _finger);
+    });
+  }
+
+  void _move(PointerMoveEvent e) {
+    if (e.pointer != _pointer) return;
+    _finger = e.localPosition;
+    if (_arcAt == null) return;
+    final h = _hit(_finger);
+    if (h != _hover) {
+      if (h != null) HapticFeedback.selectionClick();
+      setState(() => _hover = h);
+    }
+  }
+
+  void _up(PointerEvent e) {
+    if (e.pointer != _pointer) return;
+    final pick = e is PointerUpEvent && _arcAt != null ? _hover : null;
+    _holdTimer?.cancel();
+    setState(() {
+      _pointer = null;
+      _arcAt = null;
+      _hover = null;
+    });
+    if (pick != null) _label(_labels[pick], _pending);
+  }
+
+  Future<void> _label(String label, Future<MarkResult?>? mark) async {
+    final m = await mark;
+    if (m != null) widget.onLabel?.call(m, label);
+  }
+
+  /// Chip centres on an arc above where the hold began (below it when there is no room above),
+  /// spaced so 96 dp chips never overlap, and kept inside the zone.
+  List<Offset> _centres() {
+    final o = _arcAt!;
+    final n = _labels.length;
+    const r = 150.0;
+    final below = o.dy < r + 24;
+    final out = <Offset>[];
+    for (var i = 0; i < n; i++) {
+      final t = n == 1 ? 0.5 : i / (n - 1);
+      final a = math.pi * (below ? 0.11 + 0.78 * (1 - t) : 1.11 + 0.78 * t); // 200° to 340°, or 20° to 160°
+      final p = o + Offset(math.cos(a) * r, math.sin(a) * r);
+      out.add(Offset(
+        p.dx.clamp(52.0, math.max(52.0, _size.width - 52)),
+        p.dy.clamp(28.0, math.max(28.0, _size.height - 28)),
+      ));
+    }
+    return out;
+  }
+
+  int? _hit(Offset p) {
+    int? best;
+    var bestD = 52.0;
+    for (final (i, c) in _centres().indexed) {
+      final d = (c - p).distance;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final text = Theme.of(context).textTheme;
-    final zone = Container(
+    final on = widget.enabled;
+    final arc = _arcAt != null;
+    final face = Container(
       width: double.infinity,
-      decoration: BoxDecoration(
-        color: enabled ? c.accent : c.raised,
-        borderRadius: BorderRadius.circular(Radii.large),
-      ),
+      decoration: BoxDecoration(color: on ? c.accent : c.raised, borderRadius: BorderRadius.circular(Radii.large)),
       alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          RibbonGlyph(color: enabled ? c.onAccent : c.text2, size: 28),
-          const SizedBox(height: Space.m),
-          Text('Bookmark', style: text.titleMedium!.copyWith(color: enabled ? c.onAccent : c.text2)),
-          const SizedBox(height: Space.xs),
-          Text(
-            'Tap anywhere here',
-            style: text.bodySmall!.copyWith(color: enabled ? c.onAccent.withValues(alpha: 0.72) : c.text2),
-          ),
-        ],
+      child: AnimatedOpacity(
+        opacity: arc ? 0.25 : 1,
+        duration: Motion.of(context, Motion.pressIn),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RibbonGlyph(color: on ? c.onAccent : c.text2, size: 28),
+            const SizedBox(height: Space.m),
+            Text('Bookmark', style: text.titleMedium!.copyWith(color: on ? c.onAccent : c.text2)),
+            const SizedBox(height: Space.xs),
+            Text(
+              on && _labels.isNotEmpty ? 'Tap, or hold for a label' : 'Tap anywhere here',
+              style: text.bodySmall!.copyWith(color: on ? c.onAccent.withValues(alpha: 0.72) : c.text2),
+            ),
+          ],
+        ),
       ),
     );
-    if (!enabled) return Semantics(label: 'Bookmark, unavailable', child: ExcludeSemantics(child: zone));
-    return PressableScale(semanticLabel: 'Bookmark this moment', haptic: true, onPressDown: onMark, child: zone);
+    if (!on) return Semantics(label: 'Bookmark, unavailable', child: ExcludeSemantics(child: face));
+    final pressed = _pointer != null;
+    return Semantics(
+      button: true,
+      label: 'Bookmark this moment',
+      onTap: widget.onMark,
+      customSemanticsActions: {
+        for (final l in _labels) CustomSemanticsAction(label: 'Bookmark as $l'): () => _label(l, widget.onMark()),
+      },
+      child: ExcludeSemantics(
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: _down,
+          onPointerMove: _move,
+          onPointerUp: _up,
+          onPointerCancel: _up,
+          child: LayoutBuilder(builder: (context, box) {
+            _size = box.biggest;
+            return AnimatedScale(
+              scale: pressed && !arc ? 0.97 : 1,
+              duration: Motion.of(context, Motion.pressIn),
+              curve: Curves.easeOut,
+              child: AnimatedOpacity(
+                opacity: pressed && !arc ? 0.9 : 1,
+                duration: Motion.of(context, Motion.pressIn),
+                child: Stack(children: [
+                  Positioned.fill(child: face),
+                  if (arc)
+                    for (final (i, p) in _centres().indexed)
+                      Positioned(
+                        left: p.dx - 48,
+                        top: p.dy - 24,
+                        width: 96,
+                        height: 48,
+                        child: _LabelChip(label: _labels[i], hover: i == _hover),
+                      ),
+                ]),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+class _LabelChip extends StatelessWidget {
+  const _LabelChip({required this.label, required this.hover});
+
+  final String label;
+  final bool hover;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return AnimatedScale(
+      scale: hover ? 1.12 : 1,
+      duration: Motion.of(context, Motion.pressIn),
+      child: Container(
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: Space.s),
+        decoration: BoxDecoration(
+          color: c.onAccent,
+          borderRadius: BorderRadius.circular(100),
+          border: Border.all(color: hover ? c.bg : c.onAccent, width: 2),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelLarge!.copyWith(color: c.accent),
+        ),
+      ),
+    );
   }
 }
 
 /// "Mark 3 · 04:32". The newest row is outlined in marigold for 2 s.
 class MarkRow extends StatelessWidget {
-  const MarkRow({super.key, required this.mark, required this.highlight});
+  const MarkRow({super.key, required this.mark, required this.highlight, this.label});
 
   final MarkResult mark;
   final bool highlight;
+
+  /// A quick label given while recording; replaces "Mark N".
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final text = Theme.of(context).textTheme;
     return Semantics(
-      label: 'Mark ${mark.index} at ${spokenTime(mark.positionMs)}',
+      label: '${label == null ? '' : '$label, '}Mark ${mark.index} at ${spokenTime(mark.positionMs)}',
       child: ExcludeSemantics(
         child: AnimatedContainer(
           duration: Motion.of(context, Motion.entrance),
@@ -216,7 +404,7 @@ class MarkRow extends StatelessWidget {
             children: [
               RibbonGlyph(color: c.accentInk, size: 14),
               const SizedBox(width: Space.m),
-              Expanded(child: Text('Mark ${mark.index}', style: text.bodyLarge)),
+              Expanded(child: Text(label ?? 'Mark ${mark.index}', style: text.bodyLarge, maxLines: 1, overflow: TextOverflow.ellipsis)),
               Text(clock(mark.positionMs), style: text.labelLarge!.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
             ],
           ),

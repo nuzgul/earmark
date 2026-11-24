@@ -5,13 +5,14 @@ import 'app/services.dart';
 import 'data/library.dart';
 import 'engine/engine_client.dart';
 import 'features/playback/player.dart';
+import 'features/pro/pro.dart';
 import 'features/record/record_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final engine = EngineClient();
   final library = LibraryStore(await engine.recordingsRoot());
-  runApp(EarmarkApp(services: Services(engine: engine, library: library, newPlayer: JustAudioPlayer.new)));
+  runApp(EarmarkApp(services: Services(engine: engine, library: library, newPlayer: JustAudioPlayer.new, store: IapStore())));
 }
 
 class EarmarkApp extends StatefulWidget {

@@ -10,6 +10,8 @@ import '../../app/design/tokens.dart';
 import '../../app/format.dart';
 import '../../app/services.dart';
 import '../../data/library.dart';
+import '../pro/pro.dart';
+import 'batch_sheet.dart';
 import 'clip_sheet.dart';
 import 'player.dart';
 import 'waveform.dart';
@@ -37,7 +39,14 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
   /// right after the screen opens still jumps instead of being lost.
   Future<void> _opening = Future.value();
 
-  static const preRollMs = 3000;
+  static const speeds = [1.0, 1.5, 2.0];
+  double _speed = 1;
+
+  Future<void> _nextSpeed() async {
+    final next = speeds[(speeds.indexOf(_speed) + 1) % speeds.length];
+    setState(() => _speed = next);
+    await player.setSpeed(next);
+  }
 
   @override
   void initState() {
@@ -64,7 +73,7 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
     super.dispose();
   }
 
-  int get _preRoll => lib.preRoll ? preRollMs : 0;
+  int get _preRoll => lib.preRollMs;
 
   Future<void> _seek(int ms) async {
     await _opening;
@@ -123,10 +132,15 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
 
   Future<void> _menu(Recording r) async {
     final a = await chooseAction<String>(context, [
+      if (r.userMarks.isNotEmpty) (label: 'Share several clips', value: 'batch', danger: false),
       (label: 'Rename recording', value: 'rename', danger: false),
       (label: 'Delete recording', value: 'delete', danger: true),
     ]);
     if (!mounted) return;
+    if (a == 'batch' && await requirePro(context, widget.services.pro) && mounted) {
+      await player.pause();
+      if (mounted) await showAppSheet<void>(context, (_) => BatchClipSheet(services: widget.services, recording: r));
+    }
     if (a == 'rename') await _rename(r);
     if (a == 'delete' && mounted) {
       final n = r.userMarks.length;
@@ -173,6 +187,7 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
                   child: Row(children: [
                     IconTap(icon: Icons.arrow_back_rounded, label: 'Back', onTap: () => Navigator.pop(context)),
                     const Spacer(),
+                    _SpeedChip(speed: _speed, onTap: _nextSpeed),
                     IconTap(icon: Icons.more_horiz_rounded, label: 'More for this recording', onTap: () => _menu(r)),
                   ]),
                 ),
@@ -225,7 +240,7 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
                       const SizedBox(height: Space.l),
                       MergeSemantics(
                         child: Row(children: [
-                          Expanded(child: Text('Start 3 s before a mark', style: text.bodyLarge)),
+                          Expanded(child: Text('Start ${lib.preRollSeconds} s before a mark', style: text.bodyLarge)),
                           Switch(value: lib.preRoll, onChanged: lib.setPreRoll),
                         ]),
                       ),
@@ -360,6 +375,33 @@ class _MarkLine extends StatelessWidget {
       child: stacked
           ? Column(children: [jump, Row(mainAxisAlignment: MainAxisAlignment.end, children: [clip, menu])])
           : Row(children: [Expanded(child: jump), clip, menu]),
+    );
+  }
+}
+
+/// 1× → 1.5× → 2×, for long recordings.
+class _SpeedChip extends StatelessWidget {
+  const _SpeedChip({required this.speed, required this.onTap});
+
+  final double speed;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final label = speed == speed.roundToDouble() ? '${speed.round()}×' : '$speed×';
+    return PressableScale(
+      semanticLabel: 'Playback speed $label. Change',
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minWidth: kMinTarget, minHeight: kMinTarget),
+        alignment: Alignment.center,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: Space.m, vertical: Space.xs),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(100), border: Border.all(color: c.border)),
+          child: Text(label, style: Theme.of(context).textTheme.labelMedium),
+        ),
+      ),
     );
   }
 }

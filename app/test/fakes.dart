@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:earmark/engine/engine_api.g.dart';
 import 'package:earmark/features/playback/player.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 /// Writes a recording folder the way the Android engine does (audio is a placeholder byte;
 /// peaks.bin is a speech-like envelope so goldens show a real-looking waveform).
@@ -66,6 +69,11 @@ class FakePlayer implements Player {
   @override
   Future<void> seek(int ms) async => _pos.value = ms;
 
+  double speed = 1;
+
+  @override
+  Future<void> setSpeed(double s) async => speed = s;
+
   @override
   Future<void> playRange(int startMs, int endMs) async {
     range = (start: startMs, end: endMs);
@@ -74,4 +82,79 @@ class FakePlayer implements Player {
 
   @override
   Future<void> dispose() async {}
+}
+
+EngineSnapshot snap(SessionState state, {int ms = 0, int marks = 0, String? why}) => EngineSnapshot(
+      state: state,
+      recordingId: state == SessionState.idle ? null : 'rec-1',
+      positionMs: ms,
+      level: 0.6,
+      markCount: marks,
+      interruption: why,
+      freeBytes: 2 << 30,
+    );
+
+/// Engine double that behaves like the Android engine, minus the audio.
+class FakeHostApi extends RecorderHostApi {
+  FakeHostApi({this.startError});
+
+  final PlatformException? startError;
+  var state = SessionState.idle;
+  var ms = 0;
+  final marks = <MarkResult>[];
+
+  /// The engine stops answering (process frozen, bridge gone).
+  bool silent = false;
+
+  EngineSnapshot get now => snap(state, ms: ms, marks: marks.length);
+
+  @override
+  Future<EngineSnapshot> snapshot() => silent ? Completer<EngineSnapshot>().future : Future.value(now);
+
+  @override
+  Future<List<SavedRecording>> recover() async => const [];
+
+  @override
+  Future<EngineSnapshot> start() async {
+    if (startError != null) throw startError!;
+    state = SessionState.recording;
+    return now;
+  }
+
+  @override
+  Future<EngineSnapshot> pause() async {
+    state = SessionState.paused;
+    return now;
+  }
+
+  @override
+  Future<EngineSnapshot> resume() async {
+    state = SessionState.recording;
+    return now;
+  }
+
+  @override
+  Future<MarkResult> mark() async {
+    final m = MarkResult(id: 'm${marks.length + 1}', positionMs: ms, index: marks.length + 1);
+    marks.add(m);
+    return m;
+  }
+
+  @override
+  Future<SavedRecording?> stop() async {
+    state = SessionState.idle;
+    return SavedRecording(id: 'rec-1', folder: '/x', createdAtMs: 0, durationMs: ms, marks: marks, recovered: false);
+  }
+}
+
+/// Widget tests do not load bundled fonts by themselves; icons too, so goldens show real glyphs.
+Future<void> loadTestFonts() async {
+  final loader = FontLoader('MonaSans')
+    ..addFont(File('assets/fonts/MonaSans-Variable.ttf').readAsBytes().then(ByteData.sublistView));
+  await loader.load();
+  // flutter_tester lives in <flutter>/bin/cache/artifacts/engine/<platform>/.
+  final artifacts = File(Platform.resolvedExecutable).parent.parent.parent.path;
+  final icons = FontLoader('MaterialIcons')
+    ..addFont(File('$artifacts/material_fonts/MaterialIcons-Regular.otf').readAsBytes().then(ByteData.sublistView));
+  await icons.load();
 }

@@ -1,6 +1,3 @@
-import 'dart:async';
-import 'dart:io';
-
 import 'package:earmark/app/design/theme.dart';
 import 'package:earmark/app/services.dart';
 import 'package:earmark/data/library.dart';
@@ -13,69 +10,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'fakes.dart';
 
-EngineSnapshot _snap(SessionState state, {int ms = 0, int marks = 0, String? why}) => EngineSnapshot(
-      state: state,
-      recordingId: state == SessionState.idle ? null : 'rec-1',
-      positionMs: ms,
-      level: 0.6,
-      markCount: marks,
-      interruption: why,
-      freeBytes: 2 << 30,
-    );
-
-/// Engine double that behaves like the Android engine, minus the audio.
-class _FakeApi extends RecorderHostApi {
-  _FakeApi({this.startError});
-
-  final PlatformException? startError;
-  var state = SessionState.idle;
-  var ms = 0;
-  final marks = <MarkResult>[];
-
-  /// The engine stops answering (process frozen, bridge gone).
-  bool silent = false;
-
-  EngineSnapshot get now => _snap(state, ms: ms, marks: marks.length);
-
-  @override
-  Future<EngineSnapshot> snapshot() => silent ? Completer<EngineSnapshot>().future : Future.value(now);
-
-  @override
-  Future<List<SavedRecording>> recover() async => const [];
-
-  @override
-  Future<EngineSnapshot> start() async {
-    if (startError != null) throw startError!;
-    state = SessionState.recording;
-    return now;
-  }
-
-  @override
-  Future<EngineSnapshot> pause() async {
-    state = SessionState.paused;
-    return now;
-  }
-
-  @override
-  Future<EngineSnapshot> resume() async {
-    state = SessionState.recording;
-    return now;
-  }
-
-  @override
-  Future<MarkResult> mark() async {
-    final m = MarkResult(id: 'm${marks.length + 1}', positionMs: ms, index: marks.length + 1);
-    marks.add(m);
-    return m;
-  }
-
-  @override
-  Future<SavedRecording?> stop() async {
-    state = SessionState.idle;
-    return SavedRecording(id: 'rec-1', folder: '/x', createdAtMs: 0, durationMs: ms, marks: marks, recovered: false);
-  }
-}
-
 Widget _app(EngineClient engine, {double textScale = 1, Size size = const Size(390, 844)}) => MediaQuery(
       data: MediaQueryData(size: size, textScaler: TextScaler.linear(textScale)),
       child: MaterialApp(
@@ -86,22 +20,11 @@ Widget _app(EngineClient engine, {double textScale = 1, Size size = const Size(3
     );
 
 void main() {
-  setUpAll(() async {
-    // Widget tests do not load bundled fonts by themselves.
-    final loader = FontLoader('MonaSans')
-      ..addFont(File('assets/fonts/MonaSans-Variable.ttf').readAsBytes().then(ByteData.sublistView));
-    await loader.load();
-    // Icons too, so goldens show real glyphs instead of boxes.
-    // flutter_tester lives in <flutter>/bin/cache/artifacts/engine/<platform>/.
-    final artifacts = File(Platform.resolvedExecutable).parent.parent.parent.path;
-    final icons = FontLoader('MaterialIcons')
-      ..addFont(File('$artifacts/material_fonts/MaterialIcons-Regular.otf').readAsBytes().then(ByteData.sublistView));
-    await icons.load();
-  });
+  setUpAll(loadTestFonts);
 
   testWidgets('idle Record screen is labelled and reports engine errors', (tester) async {
     final engine = EngineClient(
-      api: _FakeApi(startError: PlatformException(code: 'mic_busy', message: 'The microphone isn\'t available right now.')),
+      api: FakeHostApi(startError: PlatformException(code: 'mic_busy', message: 'The microphone isn\'t available right now.')),
     );
     await tester.pumpWidget(_app(engine));
     await tester.pump();
@@ -118,7 +41,7 @@ void main() {
 
   testWidgets('microphone refused for good shows the Settings card', (tester) async {
     final engine = EngineClient(
-      api: _FakeApi(startError: PlatformException(code: 'mic_denied', message: 'x', details: 'permanent')),
+      api: FakeHostApi(startError: PlatformException(code: 'mic_denied', message: 'x', details: 'permanent')),
     );
     await tester.pumpWidget(_app(engine));
     await tester.tap(find.bySemanticsLabel('Start recording'));
@@ -129,7 +52,7 @@ void main() {
   });
 
   testWidgets('record, mark, pause, resume, stop through the screen', (tester) async {
-    final api = _FakeApi();
+    final api = FakeHostApi();
     final engine = EngineClient(api: api);
     await tester.pumpWidget(_app(engine));
     await tester.tap(find.bySemanticsLabel('Start recording'));
@@ -166,7 +89,7 @@ void main() {
   });
 
   testWidgets('no heartbeat for 1.5 s: the screen stops claiming "Recording"', (tester) async {
-    final api = _FakeApi();
+    final api = FakeHostApi();
     final engine = EngineClient(api: api);
     await tester.pumpWidget(_app(engine));
     await tester.tap(find.bySemanticsLabel('Start recording'));
@@ -180,9 +103,9 @@ void main() {
   });
 
   testWidgets('an interruption by a call is named', (tester) async {
-    final engine = EngineClient(api: _FakeApi());
+    final engine = EngineClient(api: FakeHostApi());
     await tester.pumpWidget(_app(engine));
-    engine.onSnapshot(_snap(SessionState.interrupted, ms: 5000, why: 'call'));
+    engine.onSnapshot(snap(SessionState.interrupted, ms: 5000, why: 'call'));
     await tester.pump();
     expect(find.bySemanticsLabel('Paused: call'), findsOneWidget);
     engine.dispose();
@@ -193,7 +116,7 @@ void main() {
       tester.view.physicalSize = const Size(390 * 3, 844 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
-      final engine = EngineClient(api: _FakeApi());
+      final engine = EngineClient(api: FakeHostApi());
       await tester.pumpWidget(_app(engine, textScale: scale));
       await tester.pump();
       await expectLater(
@@ -207,9 +130,9 @@ void main() {
       tester.view.physicalSize = const Size(390 * 3, 844 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
-      final engine = EngineClient(api: _FakeApi());
+      final engine = EngineClient(api: FakeHostApi());
       await tester.pumpWidget(_app(engine, textScale: scale));
-      engine.onSnapshot(_snap(SessionState.recording, ms: 272000, marks: 3));
+      engine.onSnapshot(snap(SessionState.recording, ms: 272000, marks: 3));
       engine.onMark(MarkResult(id: 'a', positionMs: 151000, index: 2));
       engine.onMark(MarkResult(id: 'b', positionMs: 268000, index: 3));
       await tester.pump(const Duration(milliseconds: 400));
@@ -226,14 +149,14 @@ void main() {
     tester.view.physicalSize = const Size(844 * 3, 390 * 3);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
-    final api = _FakeApi()
+    final api = FakeHostApi()
       ..state = SessionState.paused
       ..ms = 95000;
     api.marks.add(MarkResult(id: 'a', positionMs: 42000, index: 1));
     final engine = EngineClient(api: api);
     await tester.pumpWidget(_app(engine, size: const Size(844, 390)));
     await tester.pump();
-    engine.onSnapshot(_snap(SessionState.paused, ms: 95000, marks: 1));
+    engine.onSnapshot(snap(SessionState.paused, ms: 95000, marks: 1));
     engine.onMark(MarkResult(id: 'a', positionMs: 42000, index: 1));
     await tester.pump(const Duration(seconds: 3));
     await expectLater(find.byType(RecordScreen), matchesGoldenFile('goldens/record_live_landscape.png'));

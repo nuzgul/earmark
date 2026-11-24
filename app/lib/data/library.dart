@@ -127,7 +127,22 @@ class LibraryStore extends ChangeNotifier {
 
   List<Recording> _all = const [];
   bool loaded = false;
+
+  // Settings (settings.json next to the recordings folder).
   bool preRoll = true;
+  int preRollSeconds = 3;
+  bool calmMode = true;
+  List<String> quickLabels = defaultQuickLabels;
+
+  /// Pro, remembered after the store confirmed a purchase or restore. There is no server, so
+  /// this local flag is the entitlement (a modified device could fake it; accepted for 5.99).
+  bool pro = false;
+
+  static const defaultQuickLabels = ['Idea', 'To-do', 'Quote', 'Question'];
+  static const preRollChoices = [3, 5, 10];
+
+  /// How far before a mark playback starts.
+  int get preRollMs => preRoll ? preRollSeconds * 1000 : 0;
 
   List<Recording> get recordings => _all.where((r) => r.deletedAt == null).toList();
   List<Recording> get recentlyDeleted => _all.where((r) => r.deletedAt != null).toList();
@@ -146,7 +161,12 @@ class LibraryStore extends ChangeNotifier {
         }
         found.add(r);
       }
-      preRoll = _settings()['pre_roll'] as bool? ?? true;
+      final st = _settings();
+      preRoll = st['pre_roll'] as bool? ?? true;
+      preRollSeconds = st['pre_roll_s'] as int? ?? 3;
+      calmMode = st['calm'] as bool? ?? true;
+      quickLabels = (st['quick_labels'] as List?)?.cast<String>() ?? defaultQuickLabels;
+      pro = st['pro'] as bool? ?? false;
     }
     found.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     _all = found;
@@ -200,10 +220,16 @@ class LibraryStore extends ChangeNotifier {
 
   Future<void> undoDeleteMark(String id, String markId) => _edit(id, (e) => (e['deleted'] as List).remove(markId));
 
-  Future<void> setPreRoll(bool on) async {
-    preRoll = on;
-    notifyListeners();
-    if (root != null) await _settingsFile().writeAsString(jsonEncode({..._settings(), 'pre_roll': on}));
+  Future<void> setPreRoll(bool on) => _set('pre_roll', on, () => preRoll = on);
+  Future<void> setPreRollSeconds(int s) => _set('pre_roll_s', s, () => preRollSeconds = s);
+  Future<void> setCalmMode(bool on) => _set('calm', on, () => calmMode = on);
+  Future<void> setQuickLabels(List<String> labels) => _set('quick_labels', labels, () => quickLabels = labels);
+  Future<void> setPro(bool on) => _set('pro', on, () => pro = on);
+
+  /// Labels a mark of the recording in progress (quick labels); the library shows it once saved.
+  Future<void> labelLiveMark(String recordingId, String markId, String label) async {
+    if (root == null) return;
+    await _write('$root/$recordingId', (e) => (e['labels'] as Map)[markId] = label);
   }
 
   /// Marks first (label, "Mark N" or time such as "04:32"), then recordings by title.
@@ -222,6 +248,15 @@ class LibraryStore extends ChangeNotifier {
   // ------------------------------------------------------------------ files
 
   File _settingsFile() => File('${Directory(root!).parent.path}/settings.json');
+
+  Future<void> _set(String key, Object value, void Function() apply) async {
+    apply();
+    notifyListeners();
+    if (root == null) return;
+    final tmp = File('${_settingsFile().path}.tmp');
+    await tmp.writeAsString(jsonEncode({..._settings(), key: value}), flush: true);
+    await tmp.rename(_settingsFile().path);
+  }
 
   Map<String, dynamic> _settings() {
     try {
@@ -247,12 +282,16 @@ class LibraryStore extends ChangeNotifier {
   Future<void> _edit(String id, void Function(Map<String, dynamic>) change) async {
     final r = byId(id);
     if (r == null) return;
-    final e = _edits(r.folder);
-    change(e);
-    final tmp = File('${r.folder}/library.json.tmp');
-    await tmp.writeAsString(jsonEncode(e), flush: true);
-    await tmp.rename('${r.folder}/library.json'); // atomic: a crash never leaves half a file
+    await _write(r.folder, change);
     upsert(r.folder);
+  }
+
+  Future<void> _write(String folder, void Function(Map<String, dynamic>) change) async {
+    final e = _edits(folder);
+    change(e);
+    final tmp = File('$folder/library.json.tmp');
+    await tmp.writeAsString(jsonEncode(e), flush: true);
+    await tmp.rename('$folder/library.json'); // atomic: a crash never leaves half a file
   }
 
   /// Null for folders that are not a finished recording (in progress, or audio missing).
