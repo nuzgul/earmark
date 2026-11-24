@@ -50,6 +50,10 @@ class FakePlayer implements Player {
   final _playing = ValueNotifier(false);
   String? opened;
   ({int start, int end})? range;
+  int seeks = 0;
+
+  /// The next players fail to open their file (missing or damaged audio).
+  static bool failOpen = false;
 
   @override
   ValueListenable<int> get positionMs => _pos;
@@ -58,7 +62,10 @@ class FakePlayer implements Player {
   ValueListenable<bool> get playing => _playing;
 
   @override
-  Future<void> open(String path) async => opened = path;
+  Future<void> open(String path) async {
+    if (failOpen) throw Exception('cannot open $path');
+    opened = path;
+  }
 
   @override
   Future<void> play() async => _playing.value = true;
@@ -67,7 +74,10 @@ class FakePlayer implements Player {
   Future<void> pause() async => _playing.value = false;
 
   @override
-  Future<void> seek(int ms) async => _pos.value = ms;
+  Future<void> seek(int ms) async {
+    seeks++;
+    _pos.value = ms;
+  }
 
   double speed = 1;
 
