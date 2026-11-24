@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 
+import '../../app/design/leave_out.dart';
 import '../../app/design/pressable_scale.dart';
 import '../../app/design/sheets.dart';
 import '../../app/design/tokens.dart';
@@ -39,6 +40,9 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
   /// The file opens asynchronously; every seek and play waits for it, so a flag tapped
   /// right after the screen opens still jumps instead of being lost.
   Future<void> _opening = Future.value();
+
+  /// Marks on their way out (the row slides and fades before it is deleted).
+  final _leaving = <String>{};
 
   static const speeds = [1.0, 1.5, 2.0];
   double _speed = 1;
@@ -151,7 +155,16 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
       if (t != null) await lib.renameMark(r.id, m.id, t);
     }
     if (a == 'delete') {
-      await lib.deleteMark(r.id, m.id);
+      // The row leaves first, then the gap closes (UI-FEEDBACK-006); instant with reduced motion.
+      if (!mounted) return;
+      final leave = leaveTime(context);
+      setState(() => _leaving.add(m.id));
+      try {
+        if (leave > Duration.zero) await Future<void>.delayed(leave);
+        await lib.deleteMark(r.id, m.id);
+      } finally {
+        _leaving.remove(m.id);
+      }
       if (!mounted) return;
       _say('${m.name} deleted', action: SnackBarAction(label: 'Undo', onPressed: () => lib.undoDeleteMark(r.id, m.id)));
     }
@@ -282,15 +295,20 @@ class _PlaybackScreenState extends State<PlaybackScreen> {
                       if (marks.isEmpty)
                         Text('No marks yet. Play and tap "+ Mark" where it matters.', style: text.bodyLarge!.copyWith(color: c.text2))
                       else
-                        for (final m in marks) ...[
-                          _MarkLine(
-                            mark: m,
-                            onJump: () => _jump(m),
-                            onClip: () => _clip(r, m),
-                            onMenu: () => _markMenu(r, m),
+                        for (final m in marks)
+                          LeaveOut(
+                            key: ValueKey('mark-${m.id}'),
+                            leaving: _leaving.contains(m.id),
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: Space.s),
+                              child: _MarkLine(
+                                mark: m,
+                                onJump: () => _jump(m),
+                                onClip: () => _clip(r, m),
+                                onMenu: () => _markMenu(r, m),
+                              ),
+                            ),
                           ),
-                          const SizedBox(height: Space.s),
-                        ],
                     ],
                   ),
                 ),

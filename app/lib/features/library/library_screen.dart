@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/design/leave_out.dart';
 import '../../app/design/pressable_scale.dart';
 import '../../app/design/sheets.dart';
 import '../../app/design/tokens.dart';
@@ -24,6 +25,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   /// Rows swiped away: hidden at once (a dismissed row must leave the tree before the file write ends).
   final _hidden = <String>{};
+
+  /// Rows on their way out after Delete from the menu (a swipe animates by itself).
+  final _leaving = <String>{};
   LibraryStore get lib => widget.services.library;
 
   @override
@@ -69,7 +73,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
       (label: 'Delete', value: 'delete', danger: true),
     ]);
     if (a == 'rename') await _rename(r);
-    if (a == 'delete') await _delete(r);
+    if (a == 'delete') {
+      if (!mounted) return;
+      final leave = leaveTime(context);
+      setState(() => _leaving.add(r.id));
+      if (leave > Duration.zero) await Future<void>.delayed(leave);
+      if (!mounted) return;
+      // Hidden before it stops leaving, so the collapsed row never grows back while the delete runs.
+      setState(() {
+        _leaving.remove(r.id);
+        _hidden.add(r.id);
+      });
+      await _delete(r);
+    }
   }
 
   @override
@@ -202,6 +218,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
 
   Widget _row(Recording r) {
+    return LeaveOut(
+      key: ValueKey('leave-${r.id}'),
+      leaving: _leaving.contains(r.id),
+      child: _swipe(r),
+    );
+  }
+
+  Widget _swipe(Recording r) {
     return Dismissible(
       key: ValueKey('rec-${r.id}'),
       direction: DismissDirection.endToStart,

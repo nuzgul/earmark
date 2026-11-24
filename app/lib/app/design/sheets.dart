@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'pressable_scale.dart';
@@ -104,8 +105,49 @@ Future<bool> confirm(BuildContext context, {required String title, required Stri
   return ok ?? false;
 }
 
-/// A short list of actions (row menus). Returns the chosen value.
+/// Where a finger last went down (global). Menus open from there, so they grow out of the control
+/// that asked for them and shrink back into it (expensive-mode B1). Started once at app start.
+Offset? lastTouch;
+bool _tracking = false;
+
+void trackLastTouch() {
+  if (_tracking) return;
+  _tracking = true;
+  GestureBinding.instance.pointerRouter.addGlobalRoute((e) {
+    if (e is PointerDownEvent) lastTouch = e.position;
+  });
+}
+
+/// A short list of actions (rename, delete…): a menu at the control that opened it, or a bottom
+/// sheet when no touch is known or a screen reader drives the app (its double tap is no touch,
+/// so the last finger position would be stale).
 Future<T?> chooseAction<T>(BuildContext context, List<({String label, T value, bool danger})> actions) {
+  final at = lastTouch;
+  if (at == null || MediaQuery.accessibleNavigationOf(context)) return _actionSheet(context, actions);
+  final c = AppColors.of(context);
+  final text = Theme.of(context).textTheme;
+  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+  final p = overlay.globalToLocal(at);
+  return showMenu<T>(
+    context: context,
+    position: RelativeRect.fromRect(Rect.fromCenter(center: p, width: 1, height: 1), Offset.zero & overlay.size),
+    color: c.raised,
+    elevation: 0, // a hairline instead of a shadow
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.medium), side: BorderSide(color: c.border)),
+    constraints: const BoxConstraints(minWidth: 200),
+    popUpAnimationStyle: MediaQuery.disableAnimationsOf(context) ? AnimationStyle.noAnimation : null,
+    items: [
+      for (final a in actions)
+        PopupMenuItem<T>(
+          value: a.value,
+          height: 52,
+          child: Text(a.label, style: text.labelLarge!.copyWith(color: a.danger ? c.rec : c.text)),
+        ),
+    ],
+  );
+}
+
+Future<T?> _actionSheet<T>(BuildContext context, List<({String label, T value, bool danger})> actions) {
   return _sheet<T>(context, (ctx) {
     final c = AppColors.of(ctx);
     return Column(

@@ -12,35 +12,39 @@ a() { "$ADB" -s "$D" "$@"; }
 [ "$(a shell getprop ro.kernel.qemu | tr -d '\r')" = 1 ] || { echo "refusing: $D is not an emulator"; exit 1; }
 mkdir -p "$OUTDIR" build/ci-logs
 [ "$THEME" = dark ] && a shell cmd uimode night yes >/dev/null || a shell cmd uimode night no >/dev/null
-(while true; do a shell pm grant $PKG android.permission.RECORD_AUDIO 2>/dev/null && a shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null; sleep 1; done) &
+(while true; do a shell pm grant $PKG android.permission.RECORD_AUDIO >/dev/null 2>&1 && a shell pm grant $PKG android.permission.POST_NOTIFICATIONS >/dev/null 2>&1; sleep 1; done) &
 GRANTER=$!
 a shell input keyevent KEYCODE_WAKEUP
-a shell run-as $PKG rm -f files/capture_scene.txt 2>/dev/null
+a shell run-as $PKG rm -f files/capture_scene.txt files/capture_ack.txt 2>/dev/null
 flutter test integration_test/capture_test.dart -d "$D" > "build/ci-logs/capture-$THEME.txt" 2>&1 &
 FT=$!
 LAST=""
+ack() { a shell "run-as $PKG sh -c 'echo $1 > files/capture_ack.txt'"; } # quoted: adb re-parses the line on the device
 while kill -0 $FT 2>/dev/null; do
   SCENE=$(a shell run-as $PKG cat files/capture_scene.txt 2>/dev/null | tr -d '\r')
   if [ -n "$SCENE" ] && [ "$SCENE" != "$LAST" ]; then
     LAST="$SCENE"
     case "$SCENE" in
-      done) ;;
+      done) ack done ;;
       clip_*)
-        a shell screenrecord --time-limit 4 --bit-rate 6000000 /sdcard/$SCENE.mp4 &
+        a shell screenrecord --time-limit 5 --bit-rate 6000000 /sdcard/$SCENE.mp4 &
+        sleep 0.6 # the recorder is running before the action starts
+        ack "$SCENE"
         echo "recording $SCENE" ;;
       *)
-        sleep 0.8
         a exec-out screencap -p > "$OUTDIR/$THEME-$SCENE.png"
+        ack "$SCENE"
         echo "captured $SCENE" ;;
     esac
   fi
-  sleep 0.3
+  sleep 0.2
 done
 sleep 5 # the last screen recording finishes
+WOUT=$(cygpath -w "$OUTDIR" 2>/dev/null || echo "$OUTDIR") # adb.exe needs a Windows path (MSYS conversion is off)
 for f in $(a shell ls /sdcard/ | tr -d '\r' | grep '^clip_.*\.mp4$'); do
-  a pull /sdcard/$f "$OUTDIR/$THEME-$f" >/dev/null && a shell rm /sdcard/$f
+  a pull /sdcard/$f "$WOUT/$THEME-$f" >/dev/null && a shell rm /sdcard/$f || echo "could not pull $f"
 done
 kill $GRANTER 2>/dev/null
 a shell cmd uimode night no >/dev/null
-grep -E "All tests|Some tests|\[E\]" "build/ci-logs/capture-$THEME.txt"
+grep -aE "All tests|Some tests|\[E\]" "build/ci-logs/capture-$THEME.txt"
 ls "$OUTDIR" | grep "^$THEME-" | tr '\n' ' '; echo

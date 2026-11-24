@@ -11,3 +11,4 @@
 - 2026-11-24: "Wait for monthly reset" → CI stays paused until the GitHub Actions minutes renew; then re-run run 45377906690.
 - 2026-11-24: "forget the IOS for now and do like all other apps" + "remove earmark from private to public" → repo made public (history checked first), iOS CI job manual-only, pushes run Android CI.
 - 2026-11-24: "/be-ambitious review the app code … bug free, then /premium-ui and expensive-mode" → 3 reviews, 38/40 findings fixed with tests, CI emulator job, S24 fault checks (partly). "stop the test and close the emulator" → stopped; progress saved here.
+- 2026-11-24: "Proceed, use emulator" + "finish it then, after its done start step 5 … dont stop until u finish step 5 and use emulator" → bug-free device checks finished on the emulator (FINDINGS table); expensive-mode round 2: B1 row menus at the touch, B7 row exit, before/after stills and clips (`docs/ui-premium/AUDIT-expensive-2026-11-24-round2.md`).

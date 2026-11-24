@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'app/design/sheets.dart';
 import 'app/design/theme.dart';
 import 'app/services.dart';
 import 'data/library.dart';
@@ -37,6 +38,7 @@ class _EarmarkAppState extends State<EarmarkApp> {
   @override
   void initState() {
     super.initState();
+    trackLastTouch(); // menus open where they were asked for
     s.engine.lastSaved.addListener(_onSaved);
     _start();
   }

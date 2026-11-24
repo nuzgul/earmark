@@ -24,7 +24,7 @@
   - Settings sheet (`lib/features/settings/`): pre-roll Off/3/5/10 s, calm screen, quick labels (Pro), Recently deleted, Pro, privacy text, licences. Gear at the top right of idle Record.
   - Record: calm screen (20 s, black, first touch only wakes, Bookmark still marks, off with a screen reader); Bookmark marks on raw pointer-down; hold 450 ms → quick-label arc (Pro), labels saved to the live recording's `library.json`; screen-reader actions "Bookmark as <label>".
   - Playback: "Share several clips" (Pro, `batch_sheet.dart`), speed 1×/1.5×/2×.
-  - Audit: `docs/ui-premium/AUDIT-expensive-2026-11-24.md` (fixed: transform-only level line and Record button, haptics on saved/failed, Settings at 200 % text). For the owner: sheets growing from their trigger (B1), deleted-row slide-out (B7).
+  - Audit: `docs/ui-premium/AUDIT-expensive-2026-11-24.md` (fixed: transform-only level line and Record button, haptics on saved/failed, Settings at 200 % text). Round 2 (after the bug-free pass) fixed B1 (row menus) and B7 (row exit): `AUDIT-expensive-2026-11-24-round2.md`.
   - Release manifest: INTERNET removed. It came from Play Billing 9.1's dependency `com.google.android.datatransport:transport-backend-cct` (Google usage logs), not from billing itself (Play Store IPC). Release APK permissions now: RECORD_AUDIO, FOREGROUND_SERVICE(_MICROPHONE), POST_NOTIFICATIONS, com.android.vending.BILLING.
   - Verified (2026-11-24): `flutter analyze` clean; `flutter test` 44/44 (new: `phase4_test.dart`, `expensive_test.dart`, 4 goldens compared on Windows only); release APK builds without INTERNET.
   - Owner's Galaxy S24 FE (Android 17), release build: Settings → Earmark Pro opened Play Billing with no INTERNET permission → "Pro isn't on sale yet", no crash, app alive 10 s later, no crash-buffer entries, no background jobs scheduled.
@@ -33,13 +33,13 @@
 - Not verified: anything on a physical phone (`docs/DEVICE-CHECKS.md` A1–A12, B1–B7, C1–C13): real microphone timing, calls, Bluetooth, lock-screen and Control Center marks, background recording. iOS device builds need an Apple Developer account (signing).
 
 ## When the owner says "proceed"
-Current work: owner request "review the app code … I want this app bug free, then /premium-ui expensive mode" (2026-11-24). Stopped by the owner during device checks.
-Done: three reviews → `docs/review-2026-11-24/FINDINGS.md` (40 findings, 38 fixed with tests, 2 deferred); `flutter analyze` clean, `flutter test` all green, engine JVM 15/15; S24 fault checks partly run (see FINDINGS, "Device and CI checks").
-Next, in order:
-1. Finish the device checks listed at the end of FINDINGS.md (fault script: install the real debug APK after the kill; emulator disk-full; damaged part / lost meta). Ask the owner before using the S24; the disk test runs on the emulator only.
-2. Push and check CI (android + android-integration on the 320×640 emulator).
-3. Premium-ui expensive-mode pass with before/after screenshots and clips from the S24 (`~/.claude/skills/premium-ui/references/expensive-mode.md`); earlier audit: `docs/ui-premium/AUDIT-expensive-2026-11-24.md` (open: B1 sheets from trigger, B7 row slide-out).
-Later: Phase 5 (store), iPhone checks C1–C13 (iOS CI is manual-only: `gh workflow run ci`).
+Last request (2026-11-24): "/be-ambitious review … bug free, then /premium-ui expensive mode" — **done**.
+- Bug-free pass: `docs/review-2026-11-24/FINDINGS.md` (40 findings, 38 fixed with tests, 2 deferred; device results table: kill -9 recovery, damaged files, disk full, StrictMode, property tests, frame build cost — all on the `Shared_API35` emulator).
+- Expensive mode round 2: `docs/ui-premium/AUDIT-expensive-2026-11-24-round2.md` — B1 (row menus open at the ⋯ that was tapped, `chooseAction` in `app/lib/app/design/sheets.dart`) and B7 (deleted rows slide out, then the gap closes: `app/lib/app/design/leave_out.dart`, Playback marks + Library menu delete) fixed; 20/20 checks pass or n/a. Before/after stills, pairs and clips in `docs/ui-premium/expensive/`.
+Next, in order (all need the owner):
+1. Phone checks: frame timing on a real GPU (`tool/frames_android.sh <serial>`), menu and row exit at 120 Hz, TalkBack pass on the menu fallback, `docs/DEVICE-CHECKS.md` A1–A12/B1–B7. Ask before using the S24 (debug builds only under the side-by-side test id; never over a store install).
+2. Owner decision: keep the big sheets (clip editor, Settings, Pro) as platform bottom sheets (recommended) or make them grow out of their button.
+3. Phase 5 (store listing, signing, Play internal test) — needs the owner's OK; iPhone checks C1–C13 (iOS CI is manual-only: `gh workflow run ci`).
 
 ## Commands
 PowerShell, from `app/`:
@@ -51,4 +51,5 @@ PowerShell, from `app/`:
 Git Bash on a Mac/CI, from `app/`: `tool/integration_ios.sh` (boots an iPhone simulator, runs each integration test file).
 
 Git Bash, from `app/` (emulator running, e.g. `Shared_API35`; the script re-grants the mic after each reinstall):
+- `tool/capture_android.sh emulator-5554 ../docs/ui-premium/expensive/after light|dark` (expensive-mode stills + clips, emulator only)
 - `tool/integration_android.sh emulator-5554` (all integration tests, one file at a time) · `tool/fault_android.sh <device>` (fault injection, test tone) · `tool/disk_android.sh emulator-5554` (low storage, emulator only) · `TARGET=integration_test/clip_test.dart tool/integration_android.sh emulator-5554` (one file)
