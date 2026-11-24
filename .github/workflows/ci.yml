@@ -7,7 +7,7 @@ on:
     paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
 
-# macOS minutes are scarce on a private repo: a newer push cancels the older run.
+# A newer push cancels the older run.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -48,6 +48,9 @@ jobs:
     # The owner has no Mac: this job is the iOS build and test machine. It compiles the app and the
     # widget extension for the simulator, then runs the same integration tests as Android there
     # (engine test tone, no microphone). Device-only checks: docs/DEVICE-CHECKS.md, part C.
+    # Paused for now (owner, 2026-11-24): runs only when started by hand from the Actions tab or
+    # `gh workflow run ci`, so pushes build Android only, like the owner's other apps.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     timeout-minutes: 35
     steps:
