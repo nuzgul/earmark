@@ -8,7 +8,7 @@ Status: `open` → `fixed` (with the test) / `deferred` (with the reason).
 
 Result 2026-11-24: engine E1–E11 + E13 fixed by a separate engineer agent (JVM `FinalizeLogicTest` 10 + `EngineLogicTest` 5); Dart D1–D7, D9 and U1–U19 fixed with `test/review_test.dart` (19 tests, all failing before the fixes) and `test/phase4_test.dart` (Pro). `flutter analyze` clean, `flutter test` 65/65.
 Extra from Android Lint: E13 `FOREGROUND_SERVICE_TYPE_MICROPHONE` (API 30) behind a Q guard → R; fixed.
-Device checks still to run: S24 integration + kill -9 recovery + Record during recovery (E2) + wake lock (E5) + rapid stop/start (E9) + frame timing; emulator disk-full (E1) and damaged part / lost meta (E3).
+Device checks: done on the emulator, see "Device checks finished on the emulator" at the end. Still needing a real phone: frame timing on a real GPU.
 
 ## Engine (Kotlin, `android/app/src/main/kotlin/app/earmark/recorder/engine/`)
 | id | sev | finding | status |
