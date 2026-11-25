@@ -2,6 +2,7 @@
 # Before/after record for the "make it expensive" pass, on an EMULATOR: screenshots of the main
 # screens and short screen recordings of the key motions, in the given system theme.
 # Usage (Git Bash, from app/):  tool/capture_android.sh emulator-5554 <out-dir> light|dark
+# Store screenshots: TEST=integration_test/store_tour_test.dart tool/capture_android.sh emulator-5554 build/store/raw light
 set -u
 export MSYS_NO_PATHCONV=1
 ADB="${ADB:-adb}"
@@ -16,7 +17,7 @@ mkdir -p "$OUTDIR" build/ci-logs
 GRANTER=$!
 a shell input keyevent KEYCODE_WAKEUP
 a shell run-as $PKG rm -f files/capture_scene.txt files/capture_ack.txt 2>/dev/null
-flutter test integration_test/capture_test.dart -d "$D" > "build/ci-logs/capture-$THEME.txt" 2>&1 &
+flutter test "${TEST:-integration_test/capture_test.dart}" -d "$D" > "build/ci-logs/capture-$THEME.txt" 2>&1 &
 FT=$!
 LAST=""
 ack() { a shell "run-as $PKG sh -c 'echo $1 > files/capture_ack.txt'"; } # quoted: adb re-parses the line on the device
@@ -26,6 +27,14 @@ while kill -0 $FT 2>/dev/null; do
     LAST="$SCENE"
     case "$SCENE" in
       done) ack done ;;
+      hold:*) # hold:<name>:<x>:<y> — a real finger held down (physical pixels) while the screenshot is taken
+        IFS=: read -r _ NAME HX HY <<< "$SCENE"
+        a shell input motionevent DOWN "$HX" "$HY"
+        sleep 1.2
+        a exec-out screencap -p > "$OUTDIR/$THEME-$NAME.png"
+        a shell input motionevent UP "$HX" "$HY"
+        ack "$SCENE"
+        echo "captured $NAME (held)" ;;
       clip_*)
         a shell screenrecord --time-limit 5 --bit-rate 6000000 /sdcard/$SCENE.mp4 &
         sleep 0.6 # the recorder is running before the action starts
