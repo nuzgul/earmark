@@ -23,7 +23,7 @@ by a neutral bar; everything inside the phone is the unmodified app screen. Call
 capture (`BOXES` in the generator; re-measure them when a capture is retaken).
 
 ## Art direction
-- Logo: the new dog-eared record button (`docs/brand/make_logo.py`).
+- Logo: a marigold bookmark crossed by one voice wave (`docs/brand/make_logo.py`, v3 of 2026-11-25; chosen to differ from the owner's other apps: no folds, no moon, no bar chart).
 - Palette from the app: carbon `#14130F`, cream `#F3EEE2`/`#F7F3EA`, marigold `#FFC23D` → `#F2A81C`. Backgrounds
   alternate cream → night → cream → marigold → cream → night → marigold. One sound-wave ribbon runs through all slides.
 - Mona Sans (the app's font) headlines, 3–7 words, one highlighted phrase (marigold pill on cream, marigold text on

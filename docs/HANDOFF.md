@@ -33,13 +33,15 @@
 - Not verified: anything on a physical phone (`docs/DEVICE-CHECKS.md` A1–A12, B1–B7, C1–C13): real microphone timing, calls, Bluetooth, lock-screen and Control Center marks, background recording. iOS device builds need an Apple Developer account (signing).
 
 ## When the owner says "proceed"
-Last request (2026-11-24): "/be-ambitious review … bug free, then /premium-ui expensive mode" — **done**.
-- Bug-free pass: `docs/review-2026-11-24/FINDINGS.md` (40 findings, 38 fixed with tests, 2 deferred; device results table: kill -9 recovery, damaged files, disk full, StrictMode, property tests, frame build cost — all on the `Shared_API35` emulator).
-- Expensive mode round 2: `docs/ui-premium/AUDIT-expensive-2026-11-24-round2.md` — B1 (row menus open at the ⋯ that was tapped, `chooseAction` in `app/lib/app/design/sheets.dart`) and B7 (deleted rows slide out, then the gap closes: `app/lib/app/design/leave_out.dart`, Playback marks + Library menu delete) fixed; 20/20 checks pass or n/a. Before/after stills, pairs and clips in `docs/ui-premium/expensive/`.
-Next, in order (all need the owner):
-1. Phone checks: frame timing on a real GPU (`tool/frames_android.sh <serial>`), menu and row exit at 120 Hz, TalkBack pass on the menu fallback, `docs/DEVICE-CHECKS.md` A1–A12/B1–B7. Ask before using the S24 (debug builds only under the side-by-side test id; never over a store install).
-2. Owner decision: keep the big sheets (clip editor, Settings, Pro) as platform bottom sheets (recommended) or make them grow out of their button.
-3. Phase 5 (store listing, signing, Play internal test) — needs the owner's OK; iPhone checks C1–C13 (iOS CI is manual-only: `gh workflow run ci`).
+Last request (2026-11-25): "upload to console and send to google to review it … redesign the logo … screenshots in the PDF NOVA style … don't wait for my permission", then "change the logo, you already gave this logo to one of the other apps". **Done and sent to Google for review** (closed test "Alpha", release 2 (1.0.0)). Everything entered in Play Console is listed in `docs/play/APP_CONTENT.md`.
+- Logo v3: a marigold bookmark crossed by a voice wave (`docs/brand/make_logo.py` writes every icon: Play 512, iOS 1024, Android adaptive/monochrome/notification).
+- Store graphics in PDF NOVA's design system: `docs/play/SCREENSHOTS.md` (capture tour `app/integration_test/store_tour_test.dart`, generator `app/tool/play/make_graphics.py`, output `dist/play-store-assets/`, git-ignored).
+- Release signing: upload key outside the repo (`C:\Users\NazGouL\.paperly\keys\earmark-upload-2026.jks`, backup `E:\Earmark-keys\`), `app/android/key.properties` (git-ignored); `pubspec.yaml` version 1.0.0+2.
+Next, in order:
+1. Watch the review (Play Console → Publishing overview; e-mail to the Hanoon Labs account). If Google asks for changes, fix and resend.
+2. Production needs 12+ opted-in testers for 14 days on the closed test (the list has 2). The owner adds testers; then apply for production.
+3. Optional: deploy the hanoon-labs site (it now has `site/public/earmark-privacy.html`) and switch the privacy URL to hanoon-labs.com.
+4. Phone checks still pending (frame timing on a real GPU, TalkBack, `docs/DEVICE-CHECKS.md`).
 
 ## Commands
 PowerShell, from `app/`:
@@ -51,5 +53,6 @@ PowerShell, from `app/`:
 Git Bash on a Mac/CI, from `app/`: `tool/integration_ios.sh` (boots an iPhone simulator, runs each integration test file).
 
 Git Bash, from `app/` (emulator running, e.g. `Shared_API35`; the script re-grants the mic after each reinstall):
-- `tool/capture_android.sh emulator-5554 ../docs/ui-premium/expensive/after light|dark` (expensive-mode stills + clips, emulator only)
+- `tool/capture_android.sh emulator-5554 ../docs/ui-premium/expensive/after light|dark` (expensive-mode stills + clips, emulator only); `TEST=integration_test/store_tour_test.dart tool/capture_android.sh emulator-5554 build/store/raw light|dark` then `python tool/play/make_graphics.py build/store/raw ../dist/play-store-assets` (store graphics); `tool/play/fgs_demo_android.sh emulator-5554 ../dist/Earmark-foreground-service-demo.mp4` (Play foreground-service demo video)
+- Release bundle: `flutter build appbundle --release` (needs `android/key.properties`; bump the version code in `pubspec.yaml` first)
 - `tool/integration_android.sh emulator-5554` (all integration tests, one file at a time) · `tool/fault_android.sh <device>` (fault injection, test tone) · `tool/disk_android.sh emulator-5554` (low storage, emulator only) · `TARGET=integration_test/clip_test.dart tool/integration_android.sh emulator-5554` (one file)
